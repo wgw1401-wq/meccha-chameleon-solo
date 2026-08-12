@@ -1,40 +1,33 @@
-# 멧차 카멜레온
+# COLOR HIDE
 
-배경색에 위장해 AI 또는 사람 술래를 피하는 Canvas 웹게임입니다.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/wgw1401-wq/meccha-chameleon-solo)
+주변 색에 맞춰 몸을 칠하고 숨는 독자적인 온라인 3D 숨바꼭질 MVP입니다.
 
 **플레이:** https://meccha-chameleon-online.onrender.com
 
+## MVP 기능
+
+- Three.js 3D 맵과 3인칭 마우스 시점
+- WASD 이동, Shift 달리기
+- 팔레트 및 RGB 컬러 피커로 캐릭터 색 변경
+- 방 생성 및 5자리 코드 입장, 최대 8명
+- 30초 준비 시간과 3분 추격 시간
+- 숨는 팀 / 술래 팀 무작위 배정
+- 위치, 색상, 역할, 발견 상태 실시간 동기화
+- 술래의 화면 중앙 클릭 발견 판정
+
 ## 로컬 실행
 
-Node.js 20 이상에서 다음 명령을 실행할 수 있습니다.
+Node.js 20 이상에서 실행합니다.
 
 ```bash
+npm install
 npm start
 ```
 
-브라우저에서 `http://localhost:3000`을 엽니다.
+브라우저에서 `http://localhost:3000`을 엽니다. 온라인 테스트는 브라우저 창을 두 개 이상 열어 같은 방에 접속합니다.
 
-## 조작법
+## Render
 
-- `WASD` 또는 방향키: 이동
-- `Space`: 현재 색 구역에 위장
-- `Shift`: 대시
+`render.yaml`은 Node Web Service를 정의합니다. 서버 한 개가 정적 Three.js 클라이언트와 WebSocket 게임 서버를 함께 제공합니다.
 
-## 온라인 플레이
-
-- **온라인 플레이**에서 닉네임을 입력하고 방을 만듭니다.
-- 친구가 같은 주소에서 5자리 방 코드로 참가합니다.
-- 2~6명이 참가할 수 있으며 방장이 시작하면 술래 한 명이 무작위로 정해집니다.
-- 술래가 제한 시간 안에 모든 카멜레온과 닿으면 승리합니다.
-
-## Render 배포
-
-1. 이 폴더를 GitHub 저장소에 푸시합니다.
-2. Render Dashboard에서 **New > Blueprint**를 선택합니다.
-3. 저장소를 연결하면 `render.yaml` 설정으로 Web Service가 생성됩니다.
-
-또는 위의 **Deploy to Render** 버튼을 눌러 바로 생성할 수 있습니다.
-
-Node 서버가 정적 게임 파일과 실시간 WebSocket 방을 함께 제공합니다.
+PostgreSQL은 현재 필요하지 않습니다. 계정, 영구 전적, 리더보드를 추가할 때 도입할 수 있습니다.

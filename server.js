@@ -1,109 +1,89 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { WebSocketServer, WebSocket } = require("ws");
 
 const publicDir = path.join(__dirname, "public");
-const mimeTypes = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
-const server = http.createServer((request, response) => {
-  const requested = request.url === "/" ? "/index.html" : request.url.split("?")[0];
-  const filePath = path.normalize(path.join(publicDir, requested));
-  if (!filePath.startsWith(publicDir)) { response.writeHead(403); return response.end("Forbidden"); }
-  fs.readFile(filePath, (error, data) => {
-    if (error) { response.writeHead(404); return response.end("Not found"); }
-    response.writeHead(200, { "Content-Type": mimeTypes[path.extname(filePath)] || "application/octet-stream" });
-    response.end(data);
-  });
+const vendorFile = path.join(__dirname, "node_modules", "three", "build", "three.module.js");
+const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8" };
+const server = http.createServer((req, res) => {
+  const url = req.url.split("?")[0];
+  const file = url === "/vendor/three.module.js" ? vendorFile : path.join(publicDir, url === "/" ? "index.html" : url);
+  if (file !== vendorFile && !file.startsWith(publicDir)) { res.writeHead(403); return res.end(); }
+  fs.readFile(file, (err, data) => { if (err) { res.writeHead(404); return res.end("Not found"); } res.writeHead(200, { "Content-Type": mime[path.extname(file)] || "application/octet-stream" }); res.end(data); });
 });
 
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
-const COLORS = ["#d7ff45", "#67e8f9", "#fda4af", "#c4b5fd", "#fdba74", "#86efac"];
-const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-const code = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
-const send = (ws, message) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(message));
-const broadcast = (room, message) => room.players.forEach(p => send(p.ws, message));
-const publicPlayers = room => room.players.map(({ id, name, x, y, facing, role, caught, disguised, color }) => ({ id, name, x, y, facing, role, caught, disguised, color }));
+const COLORS = ["#ef4444", "#f97316", "#facc15", "#4ade80", "#38bdf8", "#8b5cf6", "#ec4899", "#e5e7eb"];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const send = (ws, data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data));
+const broadcast = (room, data) => room.players.forEach(p => send(p.ws, data));
+const makeCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+const exposed = room => room.players.map(({ id, name, x, z, yaw, role, found, color }) => ({ id, name, x, z, yaw, role, found, color }));
+function lobby(room) { broadcast(room, { type: "lobby", code: room.code, hostId: room.hostId, players: exposed(room) }); }
+function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, z: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {} }; }
 
-function lobby(room) {
-  broadcast(room, { type: "lobby", code: room.code, hostId: room.hostId, players: publicPlayers(room) });
+function startGame(room) {
+  if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "최소 2명이 필요합니다." });
+  room.state = "playing"; room.phase = "prepare"; room.phaseStarted = Date.now(); room.duration = 30;
+  const hunter = Math.floor(Math.random() * room.players.length);
+  const spawns = [[-14,-14],[14,-14],[-14,14],[14,14],[-8,0],[8,0],[0,-8],[0,8]];
+  room.players.forEach((p, i) => { p.role = i === hunter ? "hunter" : "hider"; p.found = false; p.color = COLORS[i % COLORS.length]; [p.x,p.z] = p.role === "hunter" ? [0,19] : spawns[i]; p.yaw = 0; });
+  broadcast(room, { type: "started", phase: room.phase, duration: 30, players: exposed(room) });
 }
-function createPlayer(ws, name) {
-  return { id: crypto.randomUUID(), ws, name: String(name || "카멜레온").trim().slice(0, 12) || "카멜레온", x: 80, y: 80, facing: 0, role: "hider", caught: false, disguised: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {} };
-}
-function start(room) {
-  if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "2명 이상 필요해요." });
-  room.state = "playing"; room.timeLeft = 75; room.startedAt = Date.now();
-  const hunterIndex = Math.floor(Math.random() * room.players.length);
-  room.players.forEach((p, i) => {
-    p.role = i === hunterIndex ? "hunter" : "hider"; p.caught = false; p.disguised = false;
-    p.x = i === hunterIndex ? 825 : 90 + (i * 67) % 520; p.y = i === hunterIndex ? 490 : 95 + (i * 113) % 380;
-  });
-  broadcast(room, { type: "started", timeLeft: room.timeLeft, players: publicPlayers(room) });
-}
-function finish(room, winner) {
-  if (room.state !== "playing") return;
-  room.state = "lobby";
-  broadcast(room, { type: "ended", winner, players: publicPlayers(room) });
-  setTimeout(() => rooms.has(room.code) && lobby(room), 800);
-}
+function endGame(room, winner) { if (room.state !== "playing") return; room.state = "results"; broadcast(room, { type: "ended", winner, players: exposed(room) }); setTimeout(() => { if (!rooms.has(room.code)) return; room.state = "lobby"; lobby(room); }, 4500); }
+function setPhase(room, phase, duration) { room.phase = phase; room.duration = duration; room.phaseStarted = Date.now(); broadcast(room, { type: "phase", phase, duration }); }
 
 wss.on("connection", ws => {
-  let player;
+  let me;
   ws.on("message", raw => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === "create") {
-      let roomCode; do roomCode = code(); while (rooms.has(roomCode));
-      player = createPlayer(ws, msg.name);
-      const room = { code: roomCode, hostId: player.id, state: "lobby", players: [player], timeLeft: 75 };
-      rooms.set(roomCode, room); player.room = roomCode;
-      send(ws, { type: "joined", id: player.id, code: roomCode }); lobby(room);
+      let code; do code = makeCode(); while (rooms.has(code)); me = player(ws, msg.name);
+      const room = { code, hostId: me.id, players: [me], state: "lobby", phase: "lobby" }; rooms.set(code, room); me.room = code;
+      send(ws, { type: "joined", id: me.id, code }); return lobby(room);
     }
     if (msg.type === "join") {
       const room = rooms.get(String(msg.code || "").toUpperCase());
-      if (!room) return send(ws, { type: "error", message: "방을 찾을 수 없어요." });
-      if (room.state !== "lobby") return send(ws, { type: "error", message: "이미 게임 중인 방이에요." });
-      if (room.players.length >= 6) return send(ws, { type: "error", message: "방이 가득 찼어요." });
-      player = createPlayer(ws, msg.name); player.room = room.code; room.players.push(player);
-      send(ws, { type: "joined", id: player.id, code: room.code }); lobby(room);
+      if (!room) return send(ws, { type: "error", message: "방을 찾을 수 없습니다." });
+      if (room.state !== "lobby") return send(ws, { type: "error", message: "이미 진행 중인 방입니다." });
+      if (room.players.length >= 8) return send(ws, { type: "error", message: "방이 가득 찼습니다. (최대 8명)" });
+      me = player(ws, msg.name); me.room = room.code; room.players.push(me); send(ws, { type: "joined", id: me.id, code: room.code }); return lobby(room);
     }
-    if (!player) return;
-    const room = rooms.get(player.room); if (!room) return;
-    if (msg.type === "start" && room.hostId === player.id) start(room);
-    if (msg.type === "input") player.input = { up: !!msg.up, down: !!msg.down, left: !!msg.left, right: !!msg.right, dash: !!msg.dash, disguise: !!msg.disguise };
+    if (!me) return; const room = rooms.get(me.room); if (!room) return;
+    if (msg.type === "start" && room.hostId === me.id && room.state === "lobby") return startGame(room);
+    if (msg.type === "input") me.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, run: !!msg.run, yaw: Number(msg.yaw) || 0 };
+    if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
+    if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
+      const target = room.players.find(p => p.id === msg.targetId && p.role === "hider" && !p.found);
+      if (target && Math.hypot(target.x - me.x, target.z - me.z) <= 7.5) { target.found = true; broadcast(room, { type: "found", targetId: target.id, by: me.id }); }
+    }
   });
   ws.on("close", () => {
-    if (!player) return; const room = rooms.get(player.room); if (!room) return;
-    room.players = room.players.filter(p => p !== player);
-    if (!room.players.length) return rooms.delete(room.code);
-    if (room.hostId === player.id) room.hostId = room.players[0].id;
-    if (room.state === "playing") finish(room, player.role === "hunter" ? "hiders" : "hunter"); else lobby(room);
+    if (!me) return; const room = rooms.get(me.room); if (!room) return; const wasHunter = me.role === "hunter";
+    room.players = room.players.filter(p => p !== me); if (!room.players.length) return rooms.delete(room.code);
+    if (room.hostId === me.id) room.hostId = room.players[0].id;
+    if (room.state === "playing") endGame(room, wasHunter ? "hiders" : "hunter"); else lobby(room);
   });
 });
 
-setInterval(() => {
-  rooms.forEach(room => {
-    if (room.state !== "playing") return;
-    room.timeLeft = Math.max(0, 75 - (Date.now() - room.startedAt) / 1000);
-    for (const p of room.players) {
-      if (p.caught) continue;
-      const i = p.input; let dx = (i.right ? 1 : 0) - (i.left ? 1 : 0), dy = (i.down ? 1 : 0) - (i.up ? 1 : 0);
-      p.disguised = p.role === "hider" && i.disguise && !dx && !dy;
-      if (p.disguised) continue;
-      const len = Math.hypot(dx, dy) || 1, speed = (p.role === "hunter" ? 205 : 180) + (i.dash ? 70 : 0);
-      p.x = clamp(p.x + dx / len * speed / 20, 24, 936); p.y = clamp(p.y + dy / len * speed / 20, 28, 572);
-      if (dx || dy) p.facing = Math.atan2(dy, dx);
-    }
-    const hunter = room.players.find(p => p.role === "hunter");
-    if (hunter) for (const p of room.players.filter(p => p.role === "hider" && !p.caught)) {
-      if (Math.hypot(p.x - hunter.x, p.y - hunter.y) < 38) p.caught = true;
-    }
-    const hiders = room.players.filter(p => p.role === "hider");
-    if (hiders.length && hiders.every(p => p.caught)) finish(room, "hunter");
-    else if (room.timeLeft <= 0) finish(room, "hiders");
-    else broadcast(room, { type: "state", timeLeft: room.timeLeft, players: publicPlayers(room) });
-  });
-}, 50);
+setInterval(() => rooms.forEach(room => {
+  if (room.state !== "playing") return;
+  const elapsed = (Date.now() - room.phaseStarted) / 1000, remaining = Math.max(0, room.duration - elapsed);
+  if (remaining <= 0) { if (room.phase === "prepare") setPhase(room, "hunt", 180); else return endGame(room, "hiders"); }
+  for (const p of room.players) {
+    if (p.found || (p.role === "hunter" && room.phase === "prepare")) continue;
+    const i = p.input, fx = Math.sin(i.yaw), fz = Math.cos(i.yaw), rx = Math.cos(i.yaw), rz = -Math.sin(i.yaw);
+    let dx = fx * ((i.forward?1:0)-(i.back?1:0)) + rx * ((i.right?1:0)-(i.left?1:0));
+    let dz = fz * ((i.forward?1:0)-(i.back?1:0)) + rz * ((i.right?1:0)-(i.left?1:0));
+    const len = Math.hypot(dx,dz) || 1, speed = (p.role === "hunter" ? 6.2 : 5.2) * (i.run ? 1.45 : 1);
+    p.x = clamp(p.x + dx/len*speed/20, -22.5, 22.5); p.z = clamp(p.z + dz/len*speed/20, -22.5, 22.5); p.yaw = i.yaw;
+  }
+  const hiders = room.players.filter(p => p.role === "hider"); if (hiders.length && hiders.every(p => p.found)) return endGame(room, "hunter");
+  broadcast(room, { type: "state", phase: room.phase, remaining, players: exposed(room) });
+}), 50);
 
 const port = Number(process.env.PORT) || 3000;
-server.listen(port, "0.0.0.0", () => console.log(`Meccha Chameleon: http://localhost:${port}`));
+server.listen(port, "0.0.0.0", () => console.log(`COLOR HIDE listening on ${port}`));

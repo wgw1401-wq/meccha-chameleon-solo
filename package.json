@@ -1,8 +1,8 @@
 {
-  "name": "meccha-chameleon-solo",
-  "version": "1.0.0",
+  "name": "color-hide",
+  "version": "2.0.0",
   "private": true,
-  "description": "AI 또는 사람 술래와 즐기는 2D 위장 술래잡기",
+  "description": "색으로 위장하는 온라인 3D 숨바꼭질 게임",
   "scripts": {
     "start": "node server.js"
   },
@@ -10,6 +10,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "three": "^0.179.1",
     "ws": "^8.18.3"
   }
 }
