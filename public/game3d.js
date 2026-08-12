@@ -8,6 +8,7 @@ const roomCode = $("#roomCode"), playerList = $("#playerList"), lobbyHint = $("#
 const nameInput = $("#nameInput"), roomInput = $("#roomInput"), colorInput = $("#colorInput"), hexOutput = $("#hexOutput"), palette = $("#palette");
 const menuDescription = $("#menuDescription");
 const sampleButton = $("#sampleButton");
+const resumeHint = $("#resumeHint");
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9ba7b0); scene.fog = new THREE.Fog(0x9ba7b0, 28, 68);
 const camera = new THREE.PerspectiveCamera(67, innerWidth / innerHeight, .1, 120);
@@ -38,7 +39,7 @@ function syncPlayers(list) {
   list.forEach(p=>{let m=playerMeshes.get(p.id)||createAvatar(p);m.userData.target=new THREE.Vector3(p.x,0,p.z);m.userData.player=p;m.userData.body.material.color.set(p.role==="hunter"?0x171a20:p.color);const hunterWaiting=me?.role==="hunter"&&phase==="prepare"&&p.role==="hider";m.visible=(!p.found||p.id===myId)&&!hunterWaiting;});
 }
 
-let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0;
+let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0,lastAttack=0,aimTarget;
 const keys=new Set(),raycaster=new THREE.Raycaster();
 function wsSend(data){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(data))}
 function connect(payload){statusText.textContent="서버 연결 중…";socket?.close();socket=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}`);socket.onopen=()=>wsSend(payload);socket.onmessage=e=>onMessage(JSON.parse(e.data));socket.onclose=()=>{if(gameActive)showResult("연결 종료","서버 연결이 끊어졌습니다.")};}
@@ -50,12 +51,13 @@ function onMessage(msg){
   if(msg.type==="phase"){phase=msg.phase;remaining=msg.duration;const me=players.find(p=>p.id===myId);toast(phase==="hunt"?(me?.role==="hunter"?"사냥 시작 — 클릭해서 찾아내세요!":"술래가 풀려났습니다!"):"준비 시작");updatePanels()}
   if(msg.type==="state"){players=msg.players;phase=msg.phase;remaining=msg.remaining;syncPlayers(players);updateHud()}
   if(msg.type==="found"){const target=players.find(p=>p.id===msg.targetId);if(msg.targetId===myId)toast("발견되었습니다!");else if(msg.by===myId)toast(`${target?.name||"플레이어"} 발견!`)}
+  if(msg.type==="attackResult"){if(msg.hit)crosshair.classList.add("target");else if(msg.reason!=="cooldown")toast(msg.reason==="range"?"조금 더 가까이 가세요":msg.reason==="blocked"?"벽이 가로막고 있습니다":"빗나갔습니다");setTimeout(()=>crosshair.classList.remove("target"),180)}
   if(msg.type==="ended"){players=msg.players;const me=players.find(p=>p.id===myId),won=(me?.role==="hunter"&&msg.winner==="hunter")||(me?.role==="hider"&&msg.winner==="hiders");showResult(won?"승리":"패배",msg.winner==="hunter"?"술래가 모두를 찾아냈습니다.":"한 명 이상의 숨는 팀이 살아남았습니다.")}
 }
 function showLobby(msg){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");lobby.classList.remove("hidden");roomCode.textContent=msg.code;playerList.innerHTML=msg.players.map(p=>`<li>${p.id===msg.hostId?"★ ":""}${safe(p.name)}</li>`).join("");lobbyHint.textContent=myId===msg.hostId?"친구에게 코드를 공유하세요. 최소 2명, 최대 8명":"방장이 시작하기를 기다리는 중";startButton.classList.toggle("hidden",myId!==msg.hostId);statusText.textContent="";hud.classList.add("hidden");colorPanel.classList.add("hidden");crosshair.classList.add("hidden")}
 function beginGame(){gameActive=true;menu.classList.add("hidden");hud.classList.remove("hidden");crosshair.classList.remove("hidden");syncPlayers(players);updatePanels();canvas.requestPointerLock?.();const me=players.find(p=>p.id===myId);toast(me?.role==="hunter"?"당신은 술래 — 30초 동안 대기하세요":"30초 안에 색을 고르고 숨으세요")}
 function showResult(title,text){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.remove("hidden");lobby.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");menuDescription.innerHTML=`<b>${title}</b><br>${text}<br><small>잠시 후 대기실로 돌아갑니다.</small>`;statusText.textContent=""}
-function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":"추격 시간";roleLabel.textContent=me?.role==="hunter"?"술래 팀":"숨는 팀"}
+function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":"추격 시간";roleLabel.textContent=me?.found?"발견됨 · 관전":me?.role==="hunter"?"술래 팀":"숨는 팀"}
 function updateHud(){const h=players.filter(p=>p.role==="hider"),alive=h.filter(p=>!p.found);timer.textContent=`${String(Math.floor(remaining/60)).padStart(2,"0")}:${String(Math.ceil(remaining%60)).padStart(2,"0")}`;survivors.textContent=`${alive.length} / ${h.length}`;updatePanels()}
 function safe(v){const d=document.createElement("div");d.textContent=v;return d.innerHTML}
 function toast(text){const t=$("#toast");t.textContent=text;t.classList.remove("hidden","show");void t.offsetWidth;t.classList.add("show");setTimeout(()=>t.classList.add("hidden"),2100)}
@@ -79,13 +81,15 @@ startButton.onclick=()=>wsSend({type:"start"});roomCode.onclick=()=>{navigator.c
 
 addEventListener("keydown",e=>{keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor()});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
 addEventListener("mousemove",e=>{if(document.pointerLockElement!==canvas||!gameActive)return;yaw-=e.movementX*.0023;pitch=THREE.MathUtils.clamp(pitch-e.movementY*.0018,-.15,.85)});
-canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt")return;raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hits=raycaster.intersectObjects([...playerMeshes.values()],true);const hit=hits.find(h=>h.object.userData.playerId&&h.object.userData.playerId!==myId);if(hit)wsSend({type:"attack",targetId:hit.object.userData.playerId})});
+canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt"||Date.now()-lastAttack<650)return;lastAttack=Date.now();if(aimTarget)wsSend({type:"attack",targetId:aimTarget});else toast("빗나갔습니다")});
+document.addEventListener("pointerlockchange",()=>resumeHint.classList.toggle("hidden",!gameActive||document.pointerLockElement===canvas));resumeHint.onclick=()=>canvas.requestPointerLock?.();
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 
 const clock=new THREE.Clock();
 function animate(now){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.04);for(const m of playerMeshes.values()){if(m.userData.target)m.position.lerp(m.userData.target,Math.min(1,dt*14));m.rotation.y=m.userData.player?.yaw||0}
-  const mine=playerMeshes.get(myId);if(mine){const target=mine.position.clone().add(new THREE.Vector3(0,1.25,0));const dist=5.8,offset=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch)*dist,2.1+Math.sin(pitch)*dist,-Math.cos(yaw)*Math.cos(pitch)*dist);camera.position.lerp(target.clone().add(offset),Math.min(1,dt*12));camera.lookAt(target);mine.visible=true}
+  const me=players.find(p=>p.id===myId),mine=playerMeshes.get(myId);let followed=mine;if(me?.found)followed=[...playerMeshes.values()].find(m=>m.userData.player?.role==="hider"&&!m.userData.player?.found)||playerMeshes.get(players.find(p=>p.role==="hunter")?.id);if(followed){const target=followed.position.clone().add(new THREE.Vector3(0,1.25,0));const dist=5.8,offset=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch)*dist,2.1+Math.sin(pitch)*dist,-Math.cos(yaw)*Math.cos(pitch)*dist);camera.position.lerp(target.clone().add(offset),Math.min(1,dt*12));camera.lookAt(target);if(mine)mine.visible=true}
   else{camera.position.set(16,18,25);camera.lookAt(0,0,0)}
+  aimTarget=undefined;if(gameActive&&me?.role==="hunter"&&phase==="hunt"){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects([...playerMeshes.values()],true).find(h=>{const id=h.object.userData.playerId,p=players.find(item=>item.id===id);return id&&id!==myId&&p&&!p.found});aimTarget=hit?.object.userData.playerId}crosshair.classList.toggle("target",!!aimTarget);crosshair.classList.toggle("cooldown",now-lastAttack<650);
   if(gameActive&&now-lastSend>45){lastSend=now;wsSend({type:"input",forward:keys.has("KeyW"),back:keys.has("KeyS"),left:keys.has("KeyA"),right:keys.has("KeyD"),run:keys.has("ShiftLeft")||keys.has("ShiftRight"),yaw})}
   renderer.render(scene,camera)}
 requestAnimationFrame(animate);

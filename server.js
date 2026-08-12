@@ -35,7 +35,7 @@ const broadcast = (room, data) => room.players.forEach(p => send(p.ws, data));
 const makeCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
 const exposed = room => room.players.map(({ id, name, x, z, yaw, role, found, color }) => ({ id, name, x, z, yaw, role, found, color }));
 function lobby(room) { broadcast(room, { type: "lobby", code: room.code, hostId: room.hostId, players: exposed(room) }); }
-function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, z: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {} }; }
+function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, z: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {}, lastAttack: 0 }; }
 
 function startGame(room) {
   if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "최소 2명이 필요합니다." });
@@ -69,8 +69,12 @@ wss.on("connection", ws => {
     if (msg.type === "input") me.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, run: !!msg.run, yaw: Number(msg.yaw) || 0 };
     if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
     if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
+      const now=Date.now();if(now-me.lastAttack<650)return send(me.ws,{type:"attackResult",hit:false,reason:"cooldown"});me.lastAttack=now;
       const target = room.players.find(p => p.id === msg.targetId && p.role === "hider" && !p.found);
-      if (target && Math.hypot(target.x - me.x, target.z - me.z) <= 7.5 && clearSight(me, target)) { target.found = true; broadcast(room, { type: "found", targetId: target.id, by: me.id }); }
+      if (!target)return send(me.ws,{type:"attackResult",hit:false,reason:"invalid"});
+      if(Math.hypot(target.x-me.x,target.z-me.z)>7.5)return send(me.ws,{type:"attackResult",hit:false,reason:"range"});
+      if(!clearSight(me,target))return send(me.ws,{type:"attackResult",hit:false,reason:"blocked"});
+      target.found=true;send(me.ws,{type:"attackResult",hit:true,targetId:target.id});broadcast(room,{type:"found",targetId:target.id,by:me.id});
     }
   });
   ws.on("close", () => {
