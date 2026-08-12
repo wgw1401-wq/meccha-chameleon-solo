@@ -70,6 +70,7 @@ wss.on("connection", ws => {
     if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
     if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
       const now=Date.now();if(now-me.lastAttack<650)return send(me.ws,{type:"attackResult",hit:false,reason:"cooldown"});me.lastAttack=now;
+      broadcast(room,{type:"shot",by:me.id,targetId:msg.targetId||null});
       const target = room.players.find(p => p.id === msg.targetId && p.role === "hider" && !p.found);
       if (!target)return send(me.ws,{type:"attackResult",hit:false,reason:"invalid"});
       if(Math.hypot(target.x-me.x,target.y-me.y,target.z-me.z)>7.5)return send(me.ws,{type:"attackResult",hit:false,reason:"range"});
@@ -91,7 +92,7 @@ setInterval(() => rooms.forEach(room => {
   if (remaining <= 0) { if (room.phase === "prepare") setPhase(room, "hunt", 180); else return endGame(room, "hiders"); }
   for (const p of room.players) {
     if (p.found || (p.role === "hunter" && room.phase === "prepare")) continue;
-    const i = p.input, fx = Math.sin(i.yaw), fz = Math.cos(i.yaw), rx = Math.cos(i.yaw), rz = -Math.sin(i.yaw);
+    const i = p.input, fx = Math.sin(i.yaw), fz = Math.cos(i.yaw), rx = -Math.cos(i.yaw), rz = Math.sin(i.yaw);
     if(i.jump&&!p.jumpHeld&&p.y<=.01){p.vy=8.2;p.airLocked=false}p.jumpHeld=i.jump;
     if(i.airLock&&!p.lockHeld&&p.y>.15)p.airLocked=!p.airLocked;p.lockHeld=i.airLock;
     if(!p.airLocked){p.vy-=20/20;p.y=Math.max(0,p.y+p.vy/20);if(p.y===0)p.vy=0}
