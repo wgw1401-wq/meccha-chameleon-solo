@@ -11,6 +11,7 @@ const sampleButton = $("#sampleButton");
 const resumeHint = $("#resumeHint");
 const soloButton = $("#soloButton");
 const sensitivityInput = $("#sensitivityInput"), sensitivityOutput = $("#sensitivityOutput");
+const aimBindButton=$("#aimBindButton"),aimBindValue=$("#aimBindValue");
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9ba7b0); scene.fog = new THREE.Fog(0x9ba7b0, 28, 68);
 const camera = new THREE.PerspectiveCamera(67, innerWidth / innerHeight, .1, 120);
@@ -50,8 +51,9 @@ function syncPlayers(list) {
 }
 
 let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0,lastAttack=0,aimTarget,playMode="online";
-let soloPhaseStarted=0,soloAiTarget=new THREE.Vector3(),soloAiThink=0,soloDetect=0,soloChase=0;
-const keys=new Set(),raycaster=new THREE.Raycaster();
+let soloPhaseStarted=0,soloAiTarget=new THREE.Vector3(),soloAiThink=0,soloDetect=0,soloChase=0,soloLastShot=0;
+let audioContext,aiming=false,bindingAim=false,aimBinding=localStorage.getItem("colorHideAimBinding")||"Mouse2";
+const keys=new Set(),mouseButtons=new Set(),raycaster=new THREE.Raycaster();
 function wsSend(data){if(playMode==="online"&&socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(data))}
 function connect(payload){
   playMode="online";
@@ -74,13 +76,15 @@ function onMessage(msg){
   if(msg.type==="state"){players=msg.players;phase=msg.phase;remaining=msg.remaining;syncPlayers(players);updateHud()}
   if(msg.type==="found"){const target=players.find(p=>p.id===msg.targetId);if(msg.targetId===myId)toast("발견되었습니다!");else if(msg.by===myId)toast(`${target?.name||"플레이어"} 발견!`)}
   if(msg.type==="shot")showShot(msg.by,msg.targetId);
+  if(msg.type==="whistle"){showWhistle(msg.x,msg.y,msg.z);if(msg.by===myId)toast("휘파람! 술래를 도발했습니다")}
+  if(msg.type==="whistleCooldown")toast(`휘파람 ${msg.remaining}초 후 사용 가능`);
   if(msg.type==="attackResult"){if(msg.hit)crosshair.classList.add("target");else if(msg.reason!=="cooldown")toast(msg.reason==="range"?"조금 더 가까이 가세요":msg.reason==="blocked"?"벽이 가로막고 있습니다":"빗나갔습니다");setTimeout(()=>crosshair.classList.remove("target"),180)}
   if(msg.type==="ended"){players=msg.players;const me=players.find(p=>p.id===myId),won=(me?.role==="hunter"&&msg.winner==="hunter")||(me?.role==="hider"&&msg.winner==="hiders");showResult(won?"승리":"패배",msg.winner==="hunter"?"술래가 모두를 찾아냈습니다.":"한 명 이상의 숨는 팀이 살아남았습니다.")}
 }
 function showLobby(msg){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");lobby.classList.remove("hidden");roomCode.textContent=msg.code;playerList.innerHTML=msg.players.map(p=>`<li>${p.id===msg.hostId?"★ ":""}${safe(p.name)}</li>`).join("");lobbyHint.textContent=myId===msg.hostId?"친구에게 코드를 공유하세요. 최소 2명, 최대 8명":"방장이 시작하기를 기다리는 중";startButton.classList.toggle("hidden",myId!==msg.hostId);statusText.textContent="";hud.classList.add("hidden");colorPanel.classList.add("hidden");crosshair.classList.add("hidden")}
 function beginGame(){gameActive=true;menu.classList.add("hidden");hud.classList.remove("hidden");crosshair.classList.remove("hidden");syncPlayers(players);updatePanels();canvas.requestPointerLock?.();const me=players.find(p=>p.id===myId);toast(me?.role==="hunter"?"당신은 술래 — 30초 동안 대기하세요":"30초 안에 색을 고르고 숨으세요")}
 function showResult(title,text){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.remove("hidden");lobby.classList.add("hidden");joinForm.classList.add("hidden");mainActions.classList.toggle("hidden",playMode!=="solo");menuDescription.innerHTML=`<b>${title}</b><br>${text}<br><small>${playMode==="solo"?"다시 도전하거나 온라인 방을 만들어 보세요.":"잠시 후 대기실로 돌아갑니다."}</small>`;statusText.textContent=""}
-function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":playMode==="solo"&&soloChase>0?"AI 추적 중!":"추격 시간";roleLabel.textContent=me?.found?"발견됨 · 관전":me?.airLocked?"공중 고정":me?.role==="hunter"?"술래 팀":"숨는 팀"}
+function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(gameActive&&me?.role==="hider"&&!me.found));phaseLabel.textContent=phase==="prepare"?"준비 시간":playMode==="solo"&&soloChase>0?"AI 추적 중!":"추격 시간";roleLabel.textContent=me?.found?"발견됨 · 관전":me?.airLocked?"공중 고정":me?.role==="hunter"?"술래 팀":"숨는 팀"}
 function updateHud(){const h=players.filter(p=>p.role==="hider"),alive=h.filter(p=>!p.found);timer.textContent=`${String(Math.floor(remaining/60)).padStart(2,"0")}:${String(Math.ceil(remaining%60)).padStart(2,"0")}`;survivors.textContent=`${alive.length} / ${h.length}`;updatePanels()}
 function safe(v){const d=document.createElement("div");d.textContent=v;return d.innerHTML}
 function toast(text){const t=$("#toast");t.textContent=text;t.classList.remove("hidden","show");void t.offsetWidth;t.classList.add("show");setTimeout(()=>t.classList.add("hidden"),2100)}
@@ -90,6 +94,9 @@ function showShot(shooterId,targetId){
   const geometry=new THREE.BufferGeometry().setFromPoints([start,end]),line=new THREE.Line(geometry,new THREE.LineBasicMaterial({color:0xffe178,transparent:true,opacity:1}));scene.add(line);
   const flash=new THREE.PointLight(0xffb52e,5,5);flash.position.copy(start);scene.add(flash);setTimeout(()=>{scene.remove(line,flash);geometry.dispose();line.material.dispose()},110);
 }
+function playWhistle(){audioContext||=new AudioContext();const now=audioContext.currentTime;[950,1250].forEach((f,i)=>{const o=audioContext.createOscillator(),g=audioContext.createGain();o.frequency.setValueAtTime(f,now+i*.13);o.frequency.exponentialRampToValueAtTime(f*1.16,now+i*.13+.15);g.gain.setValueAtTime(.08,now+i*.13);g.gain.exponentialRampToValueAtTime(.001,now+i*.13+.2);o.connect(g).connect(audioContext.destination);o.start(now+i*.13);o.stop(now+i*.13+.21)})}
+function showWhistle(x,y,z){playWhistle();const ring=new THREE.Mesh(new THREE.RingGeometry(.5,.62,32),new THREE.MeshBasicMaterial({color:0xd9ff43,transparent:true,side:THREE.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.set(x,y+.08,z);scene.add(ring);const born=performance.now();function pulse(now){const p=(now-born)/1200;if(p>=1){scene.remove(ring);ring.geometry.dispose();ring.material.dispose();return}ring.scale.setScalar(1+p*9);ring.material.opacity=1-p;requestAnimationFrame(pulse)}requestAnimationFrame(pulse)}
+function whistle(){const me=players.find(p=>p.id===myId);if(!gameActive||me?.role!=="hider"||me.found)return;if(playMode==="solo"){showWhistle(me.x,me.y,me.z);soloChase=5;soloAiTarget.set(me.x,0,me.z);toast("휘파람! AI가 소리를 들었습니다")}else wsSend({type:"whistle"})}
 
 function startSolo(){
   playMode="solo";socket?.close();myId="solo-player";currentRoom="SOLO";phase="prepare";remaining=30;soloPhaseStarted=performance.now();soloDetect=0;soloChase=0;soloAiThink=0;
@@ -117,7 +124,7 @@ function updateSolo(dt,now){
     soloDetect=THREE.MathUtils.clamp(soloDetect+(visible?dt*1.45:-dt*.7),0,1);if(soloDetect>.55)soloChase=4;else soloChase=Math.max(0,soloChase-dt);
     soloAiThink-=dt;if(soloChase>0)soloAiTarget.set(me.x,0,me.z);else if(soloAiThink<=0||Math.hypot(ai.x-soloAiTarget.x,ai.z-soloAiTarget.z)<1)chooseAiPatrol();
     const tx=soloAiTarget.x-ai.x,tz=soloAiTarget.z-ai.z,len=Math.hypot(tx,tz)||1;ai.yaw=Math.atan2(tx,tz);const aiSpeed=(soloChase>0?6.3:4.1)*dt,nx=ai.x+tx/len*aiSpeed,nz=ai.z+tz/len*aiSpeed;if(!localBlocked(nx,ai.z))ai.x=nx;else soloAiThink=0;if(!localBlocked(ai.x,nz))ai.z=nz;else soloAiThink=0;
-    if(Math.hypot(dx,me.y-ai.y,dz)<1.25){me.found=true;syncPlayers(players);return showResult("AI에게 발견됨",`위장 일치도 ${Math.round(match*100)}% — 주변색과 더 비슷하게 맞춰보세요.`)}
+    const shotDistance=Math.hypot(dx,me.y-ai.y,dz);if(soloDetect>.72&&shotDistance<12&&clearLocalSight(ai,me)&&now-soloLastShot>1100){soloLastShot=now;showShot(ai.id,me.id);if(shotDistance<9){me.found=true;syncPlayers(players);return setTimeout(()=>showResult("AI의 총에 맞았습니다",`위장 일치도 ${Math.round(match*100)}% — 엄폐물과 주변색을 함께 활용해보세요.`),180)}else toast("AI의 총알이 빗나갔습니다!")}
   }
   syncPlayers(players);updateHud();
 }
@@ -125,13 +132,16 @@ function updateSolo(dt,now){
 const paletteColors=["#ef4444","#f97316","#facc15","#4ade80","#38bdf8","#3b82f6","#8b5cf6","#ec4899","#e5e7eb","#64748b","#8b6b4a","#365c40","#b96558","#d0b84e"];
 function pickColor(color){colorInput.value=color;hexOutput.value=color.toUpperCase();document.querySelectorAll(".swatch").forEach(b=>b.classList.toggle("active",b.dataset.color===color));if(playMode==="solo"&&players[0]){players[0].color=color;syncPlayers(players)}else wsSend({type:"color",color})}
 function sampleSurfaceColor(){
-  if(!gameActive)return;const me=players.find(p=>p.id===myId);if(me?.role!=="hider"||phase!=="prepare")return toast("색 복사는 준비 시간에만 가능합니다");
+  if(!gameActive)return;const me=players.find(p=>p.id===myId);if(me?.role!=="hider"||me.found)return toast("현재 색을 변경할 수 없습니다");
   raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects(map.children,true)[0];
   const surface=hit?.object?.material?.color;if(!surface)return toast("복사할 표면을 조준하세요");
   const color=`#${surface.getHexString()}`;pickColor(color);toast(`${color.toUpperCase()} 색상 복사 완료`);
 }
 paletteColors.forEach(c=>{const b=document.createElement("button");b.className="swatch";b.dataset.color=c;b.style.background=c;b.title=c;b.onclick=()=>pickColor(c);palette.appendChild(b)});colorInput.oninput=e=>pickColor(e.target.value);
 sampleButton.onclick=sampleSurfaceColor;
+const bindingName=code=>code==="Mouse2"?"우클릭":code==="Mouse1"?"휠클릭":code==="Mouse0"?"좌클릭":code.replace("Key","").replace("Digit","");
+function updateAimBinding(code){aimBinding=code;aimBindValue.textContent=bindingName(code);localStorage.setItem("colorHideAimBinding",code);bindingAim=false;aimBindButton.classList.remove("listening")}
+aimBindValue.textContent=bindingName(aimBinding);aimBindButton.onclick=()=>{bindingAim=true;aimBindButton.classList.add("listening");aimBindValue.textContent="키를 누르세요…"};
 
 $("#createButton").onclick=()=>{mainActions.classList.add("hidden");joinForm.classList.remove("hidden");roomInput.classList.add("hidden");joinButton.textContent="새 방 만들기 →";joinButton.dataset.mode="create"};
 soloButton.onclick=startSolo;
@@ -140,10 +150,12 @@ $("#backButton").onclick=()=>{joinForm.classList.add("hidden");mainActions.class
 $("#joinButton").onclick=()=>connect({type:joinButton.dataset.mode||"join",name:nameInput.value,code:roomInput.value.trim().toUpperCase()});
 startButton.onclick=()=>wsSend({type:"start"});roomCode.onclick=()=>{navigator.clipboard?.writeText(currentRoom);toast("방 코드 복사됨")};
 
-addEventListener("keydown",e=>{if(["Space","KeyF","BracketLeft","BracketRight"].includes(e.code))e.preventDefault();keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor();if(e.code==="BracketLeft"&&!e.repeat)setSensitivity(sensitivity-.1,true);if(e.code==="BracketRight"&&!e.repeat)setSensitivity(sensitivity+.1,true)});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
+addEventListener("keydown",e=>{if(bindingAim){e.preventDefault();return updateAimBinding(e.code)}if(["Space","KeyF","BracketLeft","BracketRight","KeyG"].includes(e.code))e.preventDefault();keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor();if(e.code==="KeyG"&&!e.repeat)whistle();if(e.code==="BracketLeft"&&!e.repeat)setSensitivity(sensitivity-.1,true);if(e.code==="BracketRight"&&!e.repeat)setSensitivity(sensitivity+.1,true)});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>{keys.clear();mouseButtons.clear()});
+addEventListener("contextmenu",e=>{if(gameActive)e.preventDefault()});
+addEventListener("mousedown",e=>{const code=`Mouse${e.button}`;if(bindingAim){e.preventDefault();return updateAimBinding(code)}mouseButtons.add(code)});addEventListener("mouseup",e=>mouseButtons.delete(`Mouse${e.button}`));
 let sensitivity=Number(localStorage.getItem("colorHideSensitivity"))||1;function setSensitivity(value,announce=false){sensitivity=THREE.MathUtils.clamp(Math.round(value*10)/10,.2,2.5);sensitivityInput.value=String(sensitivity);sensitivityOutput.value=sensitivity.toFixed(1);localStorage.setItem("colorHideSensitivity",String(sensitivity));if(announce)toast(`마우스 감도 ${sensitivity.toFixed(1)}`)}setSensitivity(sensitivity);sensitivityInput.oninput=()=>setSensitivity(Number(sensitivityInput.value));
 addEventListener("mousemove",e=>{if(document.pointerLockElement!==canvas||!gameActive)return;yaw-=e.movementX*.0023*sensitivity;pitch=THREE.MathUtils.clamp(pitch-e.movementY*.0018*sensitivity,-.15,.85)});
-canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt"||Date.now()-lastAttack<650)return;lastAttack=Date.now();wsSend({type:"attack",targetId:aimTarget||null});if(!aimTarget)toast("빗나갔습니다")});
+canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt"||Date.now()-lastAttack<650)return;if(!aiming)return toast(`${bindingName(aimBinding)}으로 먼저 조준하세요`);lastAttack=Date.now();wsSend({type:"attack",targetId:aimTarget||null});if(!aimTarget)toast("빗나갔습니다")});
 document.addEventListener("pointerlockchange",()=>resumeHint.classList.toggle("hidden",!gameActive||document.pointerLockElement===canvas));resumeHint.onclick=()=>canvas.requestPointerLock?.();
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 
@@ -152,7 +164,8 @@ function animate(now){requestAnimationFrame(animate);const dt=Math.min(clock.get
   if(gameActive&&playMode==="solo")updateSolo(dt,now);
   const me=players.find(p=>p.id===myId),mine=playerMeshes.get(myId);let followed=mine;if(me?.found)followed=[...playerMeshes.values()].find(m=>m.userData.player?.role==="hider"&&!m.userData.player?.found)||playerMeshes.get(players.find(p=>p.role==="hunter")?.id);if(followed){const target=followed.position.clone().add(new THREE.Vector3(0,1.25,0));const dist=5.8,offset=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch)*dist,2.1+Math.sin(pitch)*dist,-Math.cos(yaw)*Math.cos(pitch)*dist);camera.position.lerp(target.clone().add(offset),Math.min(1,dt*12));camera.lookAt(target);if(mine)mine.visible=true}
   else{camera.position.set(16,18,25);camera.lookAt(0,0,0)}
-  aimTarget=undefined;if(gameActive&&me?.role==="hunter"&&phase==="hunt"){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects([...playerMeshes.values()],true).find(h=>{const id=h.object.userData.playerId,p=players.find(item=>item.id===id);return id&&id!==myId&&p&&!p.found});aimTarget=hit?.object.userData.playerId}crosshair.classList.toggle("target",!!aimTarget);crosshair.classList.toggle("cooldown",now-lastAttack<650);
+  aiming=gameActive&&(keys.has(aimBinding)||mouseButtons.has(aimBinding));camera.fov=THREE.MathUtils.lerp(camera.fov,aiming?43:67,Math.min(1,dt*12));camera.updateProjectionMatrix();crosshair.classList.toggle("aiming",aiming);
+  aimTarget=undefined;if(gameActive&&me?.role==="hunter"&&phase==="hunt"&&aiming){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects([...playerMeshes.values()],true).find(h=>{const id=h.object.userData.playerId,p=players.find(item=>item.id===id);return id&&id!==myId&&p&&!p.found});aimTarget=hit?.object.userData.playerId}crosshair.classList.toggle("target",!!aimTarget);crosshair.classList.toggle("cooldown",now-lastAttack<650);
   if(gameActive&&playMode==="online"&&now-lastSend>45){lastSend=now;wsSend({type:"input",forward:keys.has("KeyW"),back:keys.has("KeyS"),left:keys.has("KeyA"),right:keys.has("KeyD"),run:keys.has("ShiftLeft")||keys.has("ShiftRight"),jump:keys.has("Space"),airLock:keys.has("KeyF"),yaw})}
   renderer.render(scene,camera)}
 requestAnimationFrame(animate);

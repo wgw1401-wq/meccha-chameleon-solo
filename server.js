@@ -35,7 +35,7 @@ const broadcast = (room, data) => room.players.forEach(p => send(p.ws, data));
 const makeCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
 const exposed = room => room.players.map(({ id, name, x, y, z, yaw, role, found, color, airLocked }) => ({ id, name, x, y, z, yaw, role, found, color, airLocked }));
 function lobby(room) { broadcast(room, { type: "lobby", code: room.code, hostId: room.hostId, players: exposed(room) }); }
-function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, y: 0, z: 0, vy: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {}, lastAttack: 0, airLocked: false, jumpHeld: false, lockHeld: false }; }
+function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, y: 0, z: 0, vy: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {}, lastAttack: 0, lastWhistle: 0, airLocked: false, jumpHeld: false, lockHeld: false }; }
 
 function startGame(room) {
   if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "최소 2명이 필요합니다." });
@@ -67,7 +67,11 @@ wss.on("connection", ws => {
     if (!me) return; const room = rooms.get(me.room); if (!room) return;
     if (msg.type === "start" && room.hostId === me.id && room.state === "lobby") return startGame(room);
     if (msg.type === "input") me.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, run: !!msg.run, jump: !!msg.jump, airLock: !!msg.airLock, yaw: Number(msg.yaw) || 0 };
-    if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
+    if (msg.type === "color" && me.role === "hider" && !me.found && room.state === "playing" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
+    if(msg.type==="whistle"&&me.role==="hider"&&!me.found&&room.state==="playing"){
+      const now=Date.now();if(now-me.lastWhistle<5000)return send(me.ws,{type:"whistleCooldown",remaining:Math.ceil((5000-(now-me.lastWhistle))/1000)});me.lastWhistle=now;
+      broadcast(room,{type:"whistle",by:me.id,x:me.x,y:me.y,z:me.z});
+    }
     if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
       const now=Date.now();if(now-me.lastAttack<650)return send(me.ws,{type:"attackResult",hit:false,reason:"cooldown"});me.lastAttack=now;
       broadcast(room,{type:"shot",by:me.id,targetId:msg.targetId||null});
