@@ -7,6 +7,7 @@ const timer = $("#timer"), survivors = $("#survivors"), roleLabel = $("#role"), 
 const roomCode = $("#roomCode"), playerList = $("#playerList"), lobbyHint = $("#lobbyHint"), startButton = $("#startButton");
 const nameInput = $("#nameInput"), roomInput = $("#roomInput"), colorInput = $("#colorInput"), hexOutput = $("#hexOutput"), palette = $("#palette");
 const menuDescription = $("#menuDescription");
+const sampleButton = $("#sampleButton");
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9ba7b0); scene.fog = new THREE.Fog(0x9ba7b0, 28, 68);
 const camera = new THREE.PerspectiveCamera(67, innerWidth / innerHeight, .1, 120);
@@ -28,7 +29,7 @@ function createAvatar(p) {
   const group=new THREE.Group();group.userData.playerId=p.id;
   const body=new THREE.Mesh(new THREE.CapsuleGeometry(.55,1.05,5,10),mat(p.role==="hunter"?0x171a20:p.color));body.position.y=1.15;body.castShadow=true;body.userData.playerId=p.id;group.add(body);
   const eyeMat=mat(p.role==="hunter"?0xff3b58:0x111318);for(const x of [-.2,.2]){const eye=new THREE.Mesh(new THREE.SphereGeometry(.07,8,8),eyeMat);eye.position.set(x,1.55,.52);group.add(eye)}
-  const ring=new THREE.Mesh(new THREE.RingGeometry(.65,.75,24),new THREE.MeshBasicMaterial({color:p.id===myId?0xd9ff43:0xffffff,side:THREE.DoubleSide,transparent:true,opacity:.65}));ring.rotation.x=-Math.PI/2;ring.position.y=.03;group.add(ring);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.65,.75,24),new THREE.MeshBasicMaterial({color:0xd9ff43,side:THREE.DoubleSide,transparent:true,opacity:.65}));ring.rotation.x=-Math.PI/2;ring.position.y=.03;ring.visible=p.id===myId;group.add(ring);
   group.userData.body=body;scene.add(group);playerMeshes.set(p.id,group);return group;
 }
 function syncPlayers(list) {
@@ -61,7 +62,14 @@ function toast(text){const t=$("#toast");t.textContent=text;t.classList.remove("
 
 const paletteColors=["#ef4444","#f97316","#facc15","#4ade80","#38bdf8","#3b82f6","#8b5cf6","#ec4899","#e5e7eb","#64748b","#8b6b4a","#365c40","#b96558","#d0b84e"];
 function pickColor(color){colorInput.value=color;hexOutput.value=color.toUpperCase();document.querySelectorAll(".swatch").forEach(b=>b.classList.toggle("active",b.dataset.color===color));wsSend({type:"color",color})}
+function sampleSurfaceColor(){
+  if(!gameActive)return;const me=players.find(p=>p.id===myId);if(me?.role!=="hider"||phase!=="prepare")return toast("색 복사는 준비 시간에만 가능합니다");
+  raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects(map.children,true)[0];
+  const surface=hit?.object?.material?.color;if(!surface)return toast("복사할 표면을 조준하세요");
+  const color=`#${surface.getHexString()}`;pickColor(color);toast(`${color.toUpperCase()} 색상 복사 완료`);
+}
 paletteColors.forEach(c=>{const b=document.createElement("button");b.className="swatch";b.dataset.color=c;b.style.background=c;b.title=c;b.onclick=()=>pickColor(c);palette.appendChild(b)});colorInput.oninput=e=>pickColor(e.target.value);
+sampleButton.onclick=sampleSurfaceColor;
 
 $("#createButton").onclick=()=>{mainActions.classList.add("hidden");joinForm.classList.remove("hidden");roomInput.classList.add("hidden");joinButton.textContent="새 방 만들기 →";joinButton.dataset.mode="create"};
 $("#showJoinButton").onclick=()=>{mainActions.classList.add("hidden");joinForm.classList.remove("hidden");roomInput.classList.remove("hidden");joinButton.textContent="입장하기 →";joinButton.dataset.mode="join"};
@@ -69,7 +77,7 @@ $("#backButton").onclick=()=>{joinForm.classList.add("hidden");mainActions.class
 $("#joinButton").onclick=()=>connect({type:joinButton.dataset.mode||"join",name:nameInput.value,code:roomInput.value.trim().toUpperCase()});
 startButton.onclick=()=>wsSend({type:"start"});roomCode.onclick=()=>{navigator.clipboard?.writeText(currentRoom);toast("방 코드 복사됨")};
 
-addEventListener("keydown",e=>keys.add(e.code));addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
+addEventListener("keydown",e=>{keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor()});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
 addEventListener("mousemove",e=>{if(document.pointerLockElement!==canvas||!gameActive)return;yaw-=e.movementX*.0023;pitch=THREE.MathUtils.clamp(pitch-e.movementY*.0018,-.15,.85)});
 canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt")return;raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hits=raycaster.intersectObjects([...playerMeshes.values()],true);const hit=hits.find(h=>h.object.userData.playerId&&h.object.userData.playerId!==myId);if(hit)wsSend({type:"attack",targetId:hit.object.userData.playerId})});
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
