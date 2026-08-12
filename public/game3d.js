@@ -6,6 +6,7 @@ const mainActions = $("#mainActions"), joinForm = $("#joinForm"), lobby = $("#lo
 const timer = $("#timer"), survivors = $("#survivors"), roleLabel = $("#role"), phaseLabel = $("#phaseLabel"), hudRoom = $("#hudRoom");
 const roomCode = $("#roomCode"), playerList = $("#playerList"), lobbyHint = $("#lobbyHint"), startButton = $("#startButton");
 const nameInput = $("#nameInput"), roomInput = $("#roomInput"), colorInput = $("#colorInput"), hexOutput = $("#hexOutput"), palette = $("#palette");
+const menuDescription = $("#menuDescription");
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9ba7b0); scene.fog = new THREE.Fog(0x9ba7b0, 28, 68);
 const camera = new THREE.PerspectiveCamera(67, innerWidth / innerHeight, .1, 120);
@@ -32,7 +33,8 @@ function createAvatar(p) {
 }
 function syncPlayers(list) {
   const ids=new Set(list.map(p=>p.id)); for(const [id,m] of playerMeshes)if(!ids.has(id)){scene.remove(m);playerMeshes.delete(id)}
-  list.forEach(p=>{let m=playerMeshes.get(p.id)||createAvatar(p);m.userData.target=new THREE.Vector3(p.x,0,p.z);m.userData.player=p;m.userData.body.material.color.set(p.role==="hunter"?0x171a20:p.color);m.visible=!p.found||p.id===myId;});
+  const me=list.find(p=>p.id===myId);
+  list.forEach(p=>{let m=playerMeshes.get(p.id)||createAvatar(p);m.userData.target=new THREE.Vector3(p.x,0,p.z);m.userData.player=p;m.userData.body.material.color.set(p.role==="hunter"?0x171a20:p.color);const hunterWaiting=me?.role==="hunter"&&phase==="prepare"&&p.role==="hider";m.visible=(!p.found||p.id===myId)&&!hunterWaiting;});
 }
 
 let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0;
@@ -44,14 +46,14 @@ function onMessage(msg){
   if(msg.type==="joined"){myId=msg.id;currentRoom=msg.code;hudRoom.textContent=msg.code}
   if(msg.type==="lobby"){hostId=msg.hostId;players=msg.players;showLobby(msg)}
   if(msg.type==="started"){players=msg.players;phase=msg.phase;remaining=msg.duration;beginGame()}
-  if(msg.type==="phase"){phase=msg.phase;remaining=msg.duration;toast(phase==="hunt"?"술래가 풀려났습니다!":"준비 시작");updatePanels()}
+  if(msg.type==="phase"){phase=msg.phase;remaining=msg.duration;const me=players.find(p=>p.id===myId);toast(phase==="hunt"?(me?.role==="hunter"?"사냥 시작 — 클릭해서 찾아내세요!":"술래가 풀려났습니다!"):"준비 시작");updatePanels()}
   if(msg.type==="state"){players=msg.players;phase=msg.phase;remaining=msg.remaining;syncPlayers(players);updateHud()}
   if(msg.type==="found"){const target=players.find(p=>p.id===msg.targetId);if(msg.targetId===myId)toast("발견되었습니다!");else if(msg.by===myId)toast(`${target?.name||"플레이어"} 발견!`)}
   if(msg.type==="ended"){players=msg.players;const me=players.find(p=>p.id===myId),won=(me?.role==="hunter"&&msg.winner==="hunter")||(me?.role==="hider"&&msg.winner==="hiders");showResult(won?"승리":"패배",msg.winner==="hunter"?"술래가 모두를 찾아냈습니다.":"한 명 이상의 숨는 팀이 살아남았습니다.")}
 }
-function showLobby(msg){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");lobby.classList.remove("hidden");roomCode.textContent=msg.code;playerList.innerHTML=msg.players.map(p=>`<li>${p.id===msg.hostId?"★ ":""}${safe(p.name)}</li>`).join("");lobbyHint.textContent=myId===msg.hostId?"친구에게 코드를 공유하세요. 최소 2명, 최대 8명":"방장이 시작하기를 기다리는 중";startButton.classList.toggle("hidden",myId!==msg.hostId);statusText.textContent="";hud.classList.add("hidden");colorPanel.classList.add("hidden");crosshair.classList.add("hidden")}
-function beginGame(){gameActive=true;menu.classList.add("hidden");hud.classList.remove("hidden");crosshair.classList.remove("hidden");syncPlayers(players);updatePanels();canvas.requestPointerLock?.();toast(players.find(p=>p.id===myId)?.role==="hunter"?"당신은 술래입니다":"색을 고르고 숨으세요")}
-function showResult(title,text){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");lobby.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");$("#menuDescription").innerHTML=`<b>${title}</b><br>${text}<br><small>잠시 후 대기실로 돌아갑니다.</small>`;statusText.textContent=""}
+function showLobby(msg){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");lobby.classList.remove("hidden");roomCode.textContent=msg.code;playerList.innerHTML=msg.players.map(p=>`<li>${p.id===msg.hostId?"★ ":""}${safe(p.name)}</li>`).join("");lobbyHint.textContent=myId===msg.hostId?"친구에게 코드를 공유하세요. 최소 2명, 최대 8명":"방장이 시작하기를 기다리는 중";startButton.classList.toggle("hidden",myId!==msg.hostId);statusText.textContent="";hud.classList.add("hidden");colorPanel.classList.add("hidden");crosshair.classList.add("hidden")}
+function beginGame(){gameActive=true;menu.classList.add("hidden");hud.classList.remove("hidden");crosshair.classList.remove("hidden");syncPlayers(players);updatePanels();canvas.requestPointerLock?.();const me=players.find(p=>p.id===myId);toast(me?.role==="hunter"?"당신은 술래 — 30초 동안 대기하세요":"30초 안에 색을 고르고 숨으세요")}
+function showResult(title,text){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.remove("hidden");lobby.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");menuDescription.innerHTML=`<b>${title}</b><br>${text}<br><small>잠시 후 대기실로 돌아갑니다.</small>`;statusText.textContent=""}
 function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":"추격 시간";roleLabel.textContent=me?.role==="hunter"?"술래 팀":"숨는 팀"}
 function updateHud(){const h=players.filter(p=>p.role==="hider"),alive=h.filter(p=>!p.found);timer.textContent=`${String(Math.floor(remaining/60)).padStart(2,"0")}:${String(Math.ceil(remaining%60)).padStart(2,"0")}`;survivors.textContent=`${alive.length} / ${h.length}`;updatePanels()}
 function safe(v){const d=document.createElement("div");d.textContent=v;return d.innerHTML}

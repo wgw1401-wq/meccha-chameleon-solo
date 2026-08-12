@@ -17,7 +17,19 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
 const COLORS = ["#ef4444", "#f97316", "#facc15", "#4ade80", "#38bdf8", "#8b5cf6", "#ec4899", "#e5e7eb"];
+const OBSTACLES = [
+  { x: -13, z: -8, hx: 4.9, hz: 4.4 }, { x: 11, z: -13, hx: 5.9, hz: 3.4 },
+  { x: 13, z: 10, hx: 4.4, hz: 5.4 }, { x: -11, z: 13, hx: 6.4, hz: 3.9 },
+  { x: -3, z: -7, hx: 1.9, hz: 1.9 }, { x: 3, z: -5, hx: 1.65, hz: 1.65 },
+  { x: -3, z: 10, hx: 3.4, hz: 1 }, { x: 5, z: 14, hx: .9, hz: 2.9 }
+];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const blocked = (x, z) => OBSTACLES.some(o => Math.abs(x-o.x)<o.hx && Math.abs(z-o.z)<o.hz);
+function clearSight(a, b) {
+  const distance = Math.hypot(b.x-a.x,b.z-a.z), steps = Math.ceil(distance/.35);
+  for (let n=1;n<steps;n++) if (blocked(a.x+(b.x-a.x)*n/steps,a.z+(b.z-a.z)*n/steps)) return false;
+  return true;
+}
 const send = (ws, data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data));
 const broadcast = (room, data) => room.players.forEach(p => send(p.ws, data));
 const makeCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
@@ -29,7 +41,7 @@ function startGame(room) {
   if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "최소 2명이 필요합니다." });
   room.state = "playing"; room.phase = "prepare"; room.phaseStarted = Date.now(); room.duration = 30;
   const hunter = Math.floor(Math.random() * room.players.length);
-  const spawns = [[-14,-14],[14,-14],[-14,14],[14,14],[-8,0],[8,0],[0,-8],[0,8]];
+  const spawns = [[-20,-20],[20,-20],[-20,20],[20,20],[-20,0],[20,0],[0,-20],[0,20]];
   room.players.forEach((p, i) => { p.role = i === hunter ? "hunter" : "hider"; p.found = false; p.color = COLORS[i % COLORS.length]; [p.x,p.z] = p.role === "hunter" ? [0,19] : spawns[i]; p.yaw = 0; });
   broadcast(room, { type: "started", phase: room.phase, duration: 30, players: exposed(room) });
 }
@@ -58,7 +70,7 @@ wss.on("connection", ws => {
     if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
     if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
       const target = room.players.find(p => p.id === msg.targetId && p.role === "hider" && !p.found);
-      if (target && Math.hypot(target.x - me.x, target.z - me.z) <= 7.5) { target.found = true; broadcast(room, { type: "found", targetId: target.id, by: me.id }); }
+      if (target && Math.hypot(target.x - me.x, target.z - me.z) <= 7.5 && clearSight(me, target)) { target.found = true; broadcast(room, { type: "found", targetId: target.id, by: me.id }); }
     }
   });
   ws.on("close", () => {
@@ -79,7 +91,8 @@ setInterval(() => rooms.forEach(room => {
     let dx = fx * ((i.forward?1:0)-(i.back?1:0)) + rx * ((i.right?1:0)-(i.left?1:0));
     let dz = fz * ((i.forward?1:0)-(i.back?1:0)) + rz * ((i.right?1:0)-(i.left?1:0));
     const len = Math.hypot(dx,dz) || 1, speed = (p.role === "hunter" ? 6.2 : 5.2) * (i.run ? 1.45 : 1);
-    p.x = clamp(p.x + dx/len*speed/20, -22.5, 22.5); p.z = clamp(p.z + dz/len*speed/20, -22.5, 22.5); p.yaw = i.yaw;
+    const nextX=clamp(p.x+dx/len*speed/20,-22.5,22.5),nextZ=clamp(p.z+dz/len*speed/20,-22.5,22.5);
+    if(!blocked(nextX,p.z))p.x=nextX;if(!blocked(p.x,nextZ))p.z=nextZ;p.yaw=i.yaw;
   }
   const hiders = room.players.filter(p => p.role === "hider"); if (hiders.length && hiders.every(p => p.found)) return endGame(room, "hunter");
   broadcast(room, { type: "state", phase: room.phase, remaining, players: exposed(room) });
