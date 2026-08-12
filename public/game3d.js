@@ -1,4 +1,4 @@
-import * as THREE from "/vendor/three.module.js";
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js";
 
 const $ = s => document.querySelector(s);
 const canvas = $("#gameCanvas"), menu = $("#menu"), hud = $("#hud"), crosshair = $("#crosshair"), colorPanel = $("#colorPanel");

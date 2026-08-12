@@ -57,5 +57,12 @@
     <footer class="controls"><span><b>WASD</b> 이동</span><span><b>MOUSE</b> 시점</span><span><b>SHIFT</b> 달리기</span><span><b>E</b> 색 복사</span><span><b>CLICK</b> 발견</span></footer>
   </main>
   <script type="module" src="/game3d.js"></script>
+  <script>
+    window.addEventListener("error", function (event) {
+      if (!event.message && !event.target?.src) return;
+      var status = document.getElementById("statusText");
+      if (status) status.textContent = "게임 파일을 불러오지 못했습니다. 새로고침해 주세요.";
+    }, true);
+  </script>
 </body>
 </html>
