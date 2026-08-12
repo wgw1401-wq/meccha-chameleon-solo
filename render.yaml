@@ -1,8 +1,9 @@
 services:
   - type: web
     name: meccha-chameleon-solo
-    runtime: static
+    runtime: node
     plan: free
-    buildCommand: echo "No build required"
-    staticPublishPath: ./public
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
     autoDeployTrigger: commit

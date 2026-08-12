@@ -11,7 +11,7 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">SOLO STEALTH GAME</p>
+        <p class="eyebrow">SOLO & ONLINE STEALTH GAME</p>
         <h1>멧차 카멜레온</h1>
       </div>
       <button id="soundButton" class="icon-button" type="button" aria-label="소리 켜기">♪ OFF</button>
@@ -31,12 +31,26 @@
           <p class="eyebrow">READY TO BLEND?</p>
           <h2 id="overlayTitle">색 속에 숨어라!</h2>
           <p id="overlayText">같은 색 구역에 들어가 위장하고, AI 술래의 시선을 피하세요.</p>
+          <div id="menuActions" class="menu-actions">
+            <button id="soloButton" class="primary" type="button">AI와 혼자 하기</button>
+            <button id="onlineButton" class="secondary" type="button">온라인 플레이</button>
+          </div>
+          <div id="onlineForm" class="online-form hidden">
+            <input id="nameInput" maxlength="12" placeholder="닉네임" value="카멜레온">
+            <button id="createButton" class="primary" type="button">새 방 만들기</button>
+            <div class="join-row"><input id="roomInput" maxlength="5" placeholder="방 코드"><button id="joinButton" class="secondary" type="button">참가</button></div>
+            <button id="backButton" class="text-button" type="button">← 돌아가기</button>
+          </div>
+          <div id="lobbyPanel" class="lobby-panel hidden">
+            <p>방 코드 <button id="roomCode" title="클릭해서 복사"></button></p>
+            <ul id="playerList"></ul>
+          </div>
           <div class="controls">
             <span><b>WASD / 방향키</b> 이동</span>
             <span><b>SPACE</b> 위장</span>
             <span><b>SHIFT</b> 대시</span>
           </div>
-          <button id="startButton" class="primary" type="button">게임 시작</button>
+          <button id="startButton" class="primary hidden" type="button">게임 시작</button>
         </div>
       </div>
     </section>

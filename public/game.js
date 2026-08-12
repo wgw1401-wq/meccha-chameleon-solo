@@ -11,6 +11,18 @@ const timeValue = document.querySelector("#timeValue");
 const scoreValue = document.querySelector("#scoreValue");
 const dangerValue = document.querySelector("#dangerValue");
 const soundButton = document.querySelector("#soundButton");
+const menuActions = document.querySelector("#menuActions");
+const onlineForm = document.querySelector("#onlineForm");
+const lobbyPanel = document.querySelector("#lobbyPanel");
+const soloButton = document.querySelector("#soloButton");
+const onlineButton = document.querySelector("#onlineButton");
+const createButton = document.querySelector("#createButton");
+const joinButton = document.querySelector("#joinButton");
+const backButton = document.querySelector("#backButton");
+const nameInput = document.querySelector("#nameInput");
+const roomInput = document.querySelector("#roomInput");
+const roomCode = document.querySelector("#roomCode");
+const playerList = document.querySelector("#playerList");
 
 const W = canvas.width;
 const H = canvas.height;
@@ -32,6 +44,13 @@ let lastTime = 0;
 let caughtMeter = 0;
 let soundOn = false;
 let audioContext;
+let mode = "menu";
+let socket;
+let myId;
+let onlinePlayers = [];
+let onlineHostId;
+let onlineCode;
+let lastInputSent = 0;
 
 const player = { x: 120, y: 150, r: 18, speed: 180, dash: 100, dashEnergy: 100, disguised: false, zone: 0, facing: 0 };
 const hunter = { x: 820, y: 460, r: 22, speed: 105, angle: Math.PI, targetAngle: Math.PI, think: 0, alert: 0, patrolX: 820, patrolY: 460 };
@@ -52,11 +71,74 @@ function resetRound() {
 }
 
 function startGame() {
+  mode = "solo";
   if (state === "gameover") { round = 1; score = 0; }
   state = "playing";
   resetRound();
   overlay.classList.add("hidden");
   beep(440, .06);
+}
+
+function connectOnline(action) {
+  if (socket && socket.readyState <= 1) socket.close();
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  socket = new WebSocket(`${protocol}//${location.host}`);
+  overlayText.textContent = "서버에 연결 중…";
+  socket.addEventListener("open", () => socket.send(JSON.stringify(action)));
+  socket.addEventListener("message", event => handleOnlineMessage(JSON.parse(event.data)));
+  socket.addEventListener("close", () => {
+    if (mode === "online") showOnlineError("서버 연결이 끊어졌어요. 다시 접속해 주세요.");
+  });
+}
+
+function handleOnlineMessage(msg) {
+  if (msg.type === "error") return showOnlineError(msg.message);
+  if (msg.type === "joined") { myId = msg.id; onlineCode = msg.code; mode = "online"; }
+  if (msg.type === "lobby") {
+    state = "lobby"; onlinePlayers = msg.players; onlineHostId = msg.hostId;
+    overlayTitle.textContent = "온라인 대기실";
+    overlayText.textContent = myId === onlineHostId ? "친구에게 방 코드를 알려주고 게임을 시작하세요." : "방장이 게임을 시작할 때까지 기다려 주세요.";
+    onlineForm.classList.add("hidden"); menuActions.classList.add("hidden"); lobbyPanel.classList.remove("hidden"); overlay.classList.remove("hidden");
+    roomCode.textContent = msg.code;
+    playerList.innerHTML = msg.players.map(p => `<li>${p.id === msg.hostId ? "★ " : ""}${escapeHtml(p.name)}</li>`).join("");
+    startButton.classList.toggle("hidden", myId !== onlineHostId);
+    startButton.textContent = "온라인 게임 시작";
+  }
+  if (msg.type === "started") {
+    state = "onlinePlaying"; onlinePlayers = msg.players; timeLeft = msg.timeLeft;
+    overlay.classList.add("hidden"); lobbyPanel.classList.add("hidden"); startButton.classList.add("hidden");
+    beep(540, .08);
+  }
+  if (msg.type === "state") { onlinePlayers = msg.players; timeLeft = msg.timeLeft; updateOnlineHud(); }
+  if (msg.type === "ended") {
+    state = "lobby"; onlinePlayers = msg.players;
+    const me = onlinePlayers.find(p => p.id === myId);
+    const won = (me?.role === "hunter" && msg.winner === "hunter") || (me?.role === "hider" && msg.winner === "hiders");
+    overlayTitle.textContent = won ? "승리!" : "패배!";
+    overlayText.textContent = msg.winner === "hunter" ? "술래가 모든 카멜레온을 잡았습니다." : "카멜레온들이 제한 시간 동안 살아남았습니다.";
+    lobbyPanel.classList.add("hidden"); startButton.classList.add("hidden"); overlay.classList.remove("hidden");
+    beep(won ? 720 : 150, .16);
+  }
+}
+
+function escapeHtml(value) {
+  const div = document.createElement("div"); div.textContent = value; return div.innerHTML;
+}
+function showOnlineError(message) {
+  overlayText.textContent = message; onlineForm.classList.remove("hidden"); lobbyPanel.classList.add("hidden");
+}
+function onlineInput(now) {
+  if (!socket || socket.readyState !== WebSocket.OPEN || now - lastInputSent < 45) return;
+  lastInputSent = now;
+  socket.send(JSON.stringify({ type: "input", up: keys.has("ArrowUp") || keys.has("KeyW"), down: keys.has("ArrowDown") || keys.has("KeyS"), left: keys.has("ArrowLeft") || keys.has("KeyA"), right: keys.has("ArrowRight") || keys.has("KeyD"), dash: keys.has("ShiftLeft") || keys.has("ShiftRight"), disguise: keys.has("Space") }));
+}
+function updateOnlineHud() {
+  const me = onlinePlayers.find(p => p.id === myId);
+  roundValue.textContent = onlineCode || "ONLINE";
+  timeValue.textContent = Math.max(0, timeLeft).toFixed(1);
+  scoreValue.textContent = me?.role === "hunter" ? "술래" : me?.caught ? "잡힘" : "생존";
+  dangerValue.textContent = me?.role === "hunter" ? "추격하라!" : me?.disguised ? "위장 중" : "도망쳐!";
+  dangerValue.style.color = me?.role === "hunter" ? "#ff5e78" : "#d7ff45";
 }
 
 function zoneAt(x, y) {
@@ -260,6 +342,25 @@ function drawHunter() {
   }
 }
 
+function drawOnlinePlayers() {
+  for (const p of onlinePlayers) {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.facing || 0);
+    ctx.globalAlpha = p.caught ? .25 : p.disguised ? .55 : 1;
+    ctx.fillStyle = p.role === "hunter" ? "#ff5e78" : p.color;
+    if (p.role === "hunter") {
+      ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(8, -3, 8, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(14, 3); ctx.lineTo(23, 12); ctx.stroke();
+    } else {
+      ctx.strokeStyle = p.color; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(-17, 1, 12, .3, Math.PI * 1.8); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, 0, 21, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(17, -5, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#101522"; ctx.beginPath(); ctx.arc(20, -8, 3.2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = p.id === myId ? "#d7ff45" : "#fff"; ctx.font = "700 12px system-ui"; ctx.textAlign = "center";
+    ctx.fillText(`${p.id === myId ? "▼ " : ""}${p.name}${p.caught ? " (잡힘)" : ""}`, p.x, p.y - 31);
+  }
+}
+
 function drawEnergy() {
   ctx.fillStyle = "rgba(8,11,18,.62)";
   roundedRect(28, H - 25, 170, 9, 5); ctx.fill();
@@ -273,6 +374,7 @@ function drawEnergy() {
 
 function draw() {
   drawMap();
+  if (mode === "online") { drawOnlinePlayers(); return; }
   drawSight();
   drawChameleon();
   drawHunter();
@@ -282,7 +384,7 @@ function draw() {
 function frame(now) {
   const dt = Math.min(.034, (now - lastTime) / 1000 || 0);
   lastTime = now;
-  update(dt);
+  if (state === "onlinePlaying") onlineInput(now); else update(dt);
   draw();
   requestAnimationFrame(frame);
 }
@@ -305,7 +407,15 @@ addEventListener("keydown", event => {
 });
 addEventListener("keyup", event => keys.delete(event.code));
 addEventListener("blur", () => keys.clear());
-startButton.addEventListener("click", startGame);
+startButton.addEventListener("click", () => {
+  if (mode === "online") socket?.send(JSON.stringify({ type: "start" })); else startGame();
+});
+soloButton.addEventListener("click", startGame);
+onlineButton.addEventListener("click", () => { menuActions.classList.add("hidden"); onlineForm.classList.remove("hidden"); overlayTitle.textContent = "친구와 온라인 플레이"; overlayText.textContent = "방을 만들거나 친구의 방 코드를 입력하세요."; });
+backButton.addEventListener("click", () => { onlineForm.classList.add("hidden"); menuActions.classList.remove("hidden"); overlayTitle.textContent = "색 속에 숨어라!"; overlayText.textContent = "같은 색 구역에 들어가 위장하고, AI 또는 사람 술래의 시선을 피하세요."; });
+createButton.addEventListener("click", () => connectOnline({ type: "create", name: nameInput.value }));
+joinButton.addEventListener("click", () => connectOnline({ type: "join", name: nameInput.value, code: roomInput.value.trim().toUpperCase() }));
+roomCode.addEventListener("click", () => navigator.clipboard?.writeText(onlineCode));
 soundButton.addEventListener("click", () => {
   soundOn = !soundOn;
   soundButton.textContent = soundOn ? "♪ ON" : "♪ OFF";

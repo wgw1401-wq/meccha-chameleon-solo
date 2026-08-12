@@ -44,6 +44,18 @@ canvas { display: block; width: 100%; height: auto; background: #20283a; touch-a
 .controls span { padding: 7px 10px; font-size: .72rem; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; }
 .controls b { color: var(--ink); }
 .primary { border: 0; border-radius: 12px; padding: 12px 25px; color: #11170b; font-weight: 900; background: var(--accent); cursor: pointer; box-shadow: 0 8px 25px rgba(215,255,69,.18); }
+.secondary { border: 1px solid var(--line); border-radius: 12px; padding: 12px 20px; color: var(--ink); font-weight: 800; background: #262d42; cursor: pointer; }
+.hidden { display: none !important; }
+.menu-actions { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
+.online-form { display: grid; gap: 9px; max-width: 310px; margin: 20px auto 0; }
+.online-form input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; color: var(--ink); background: #0d1220; text-transform: uppercase; outline: none; }
+.join-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.text-button { color: var(--muted); border: 0; background: transparent; cursor: pointer; }
+.lobby-panel { margin: 18px 0; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #0d1220; }
+.lobby-panel p { margin: 0 0 9px !important; }
+#roomCode { margin-left: 7px; padding: 4px 9px; border: 1px solid var(--accent); border-radius: 7px; color: var(--accent); background: transparent; font-weight: 900; letter-spacing: .13em; cursor: pointer; }
+#playerList { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+#playerList li { padding: 5px 8px; border-radius: 7px; color: var(--muted); background: #20283a; font-size: .76rem; }
 footer > p { color: var(--muted); font-size: .78rem; text-align: center; }
 .mobile-controls { display: none; justify-content: space-between; align-items: center; margin-top: 14px; user-select: none; }
 .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(2, 45px); gap: 5px; }

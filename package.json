@@ -2,11 +2,14 @@
   "name": "meccha-chameleon-solo",
   "version": "1.0.0",
   "private": true,
-  "description": "AI 술래를 피해 위장하는 2D 웹게임",
+  "description": "AI 또는 사람 술래와 즐기는 2D 위장 술래잡기",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
   }
 }
