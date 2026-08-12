@@ -4,6 +4,8 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/wgw1401-wq/meccha-chameleon-solo)
 
+**플레이:** https://meccha-chameleon-online.onrender.com
+
 ## 로컬 실행
 
 Node.js 20 이상에서 다음 명령을 실행할 수 있습니다.
