@@ -42,7 +42,17 @@ function syncPlayers(list) {
 let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0,lastAttack=0,aimTarget;
 const keys=new Set(),raycaster=new THREE.Raycaster();
 function wsSend(data){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(data))}
-function connect(payload){statusText.textContent="서버 연결 중…";socket?.close();socket=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}`);socket.onopen=()=>wsSend(payload);socket.onmessage=e=>onMessage(JSON.parse(e.data));socket.onclose=()=>{if(gameActive)showResult("연결 종료","서버 연결이 끊어졌습니다.")};}
+function connect(payload){
+  statusText.textContent="서버 연결 중…";socket?.close();
+  const isLegacyStatic=location.hostname==="meccha-chameleon-solo.onrender.com";
+  const socketHost=isLegacyStatic?"meccha-chameleon-online.onrender.com":location.host;
+  socket=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${socketHost}`);
+  const timeout=setTimeout(()=>{if(socket?.readyState!==WebSocket.OPEN){statusText.textContent="서버 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.";socket?.close()}},12000);
+  socket.onopen=()=>{clearTimeout(timeout);statusText.textContent="";wsSend(payload)};
+  socket.onmessage=e=>onMessage(JSON.parse(e.data));
+  socket.onerror=()=>{clearTimeout(timeout);statusText.textContent="게임 서버에 연결하지 못했습니다."};
+  socket.onclose=()=>{clearTimeout(timeout);if(gameActive)showResult("연결 종료","서버 연결이 끊어졌습니다.");else if(!myId)statusText.textContent="게임 서버에 연결하지 못했습니다. 다시 시도해 주세요."};
+}
 function onMessage(msg){
   if(msg.type==="error"){statusText.textContent=msg.message;return}
   if(msg.type==="joined"){myId=msg.id;currentRoom=msg.code;hudRoom.textContent=msg.code}
