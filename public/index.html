@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#151b2b">
+  <title>멧차 카멜레온</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SOLO STEALTH GAME</p>
+        <h1>멧차 카멜레온</h1>
+      </div>
+      <button id="soundButton" class="icon-button" type="button" aria-label="소리 켜기">♪ OFF</button>
+    </header>
+
+    <section class="hud" aria-label="게임 상태">
+      <div><span>라운드</span><strong id="roundValue">1 / 3</strong></div>
+      <div><span>남은 시간</span><strong id="timeValue">45.0</strong></div>
+      <div><span>점수</span><strong id="scoreValue">0</strong></div>
+      <div class="danger"><span>발각 위험</span><strong id="dangerValue">안전</strong></div>
+    </section>
+
+    <section class="game-wrap">
+      <canvas id="gameCanvas" width="960" height="600" aria-label="멧차 카멜레온 게임 화면"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="card">
+          <p class="eyebrow">READY TO BLEND?</p>
+          <h2 id="overlayTitle">색 속에 숨어라!</h2>
+          <p id="overlayText">같은 색 구역에 들어가 위장하고, AI 술래의 시선을 피하세요.</p>
+          <div class="controls">
+            <span><b>WASD / 방향키</b> 이동</span>
+            <span><b>SPACE</b> 위장</span>
+            <span><b>SHIFT</b> 대시</span>
+          </div>
+          <button id="startButton" class="primary" type="button">게임 시작</button>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p><b>팁:</b> 위장 중에는 움직일 수 없어요. 술래의 시야 원뿔 밖에서 다음 구역으로 이동하세요.</p>
+      <div class="mobile-controls" aria-label="모바일 조작">
+        <div class="dpad">
+          <button data-key="ArrowUp">▲</button>
+          <button data-key="ArrowLeft">◀</button>
+          <button data-key="ArrowDown">▼</button>
+          <button data-key="ArrowRight">▶</button>
+        </div>
+        <button class="action disguise" data-key="Space">위장</button>
+        <button class="action dash" data-key="ShiftLeft">대시</button>
+      </div>
+    </footer>
+  </main>
+  <script src="/game.js"></script>
+</body>
+</html>
