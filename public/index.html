@@ -28,6 +28,10 @@
       <label class="custom-color">직접 선택 <input id="colorInput" type="color" value="#6ee7b7"></label>
       <button id="sampleButton" class="sample-button"><b>E</b> 조준한 표면색 복사</button>
     </section>
+    <section class="settings-panel">
+      <label for="sensitivityInput">마우스 감도 <output id="sensitivityOutput">1.0</output></label>
+      <input id="sensitivityInput" type="range" min="0.2" max="2.5" step="0.1" value="1">
+    </section>
 
     <section id="menu" class="modal-layer">
       <div class="menu-card">
@@ -55,7 +59,7 @@
       </div>
     </section>
 
-    <footer class="controls"><span><b>WASD</b> 이동</span><span><b>MOUSE</b> 시점</span><span><b>SHIFT</b> 달리기</span><span><b>E</b> 색 복사</span><span><b>CLICK</b> 발견</span></footer>
+    <footer class="controls"><span><b>WASD</b> 이동</span><span><b>MOUSE</b> 시점</span><span><b>SHIFT</b> 달리기</span><span><b>SPACE</b> 점프</span><span><b>F</b> 공중 고정</span><span><b>E</b> 색 복사</span><span><b>CLICK</b> 발견</span></footer>
   </main>
   <script type="module" src="/game3d.js"></script>
   <script>

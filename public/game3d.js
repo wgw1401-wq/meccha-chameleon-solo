@@ -10,6 +10,7 @@ const menuDescription = $("#menuDescription");
 const sampleButton = $("#sampleButton");
 const resumeHint = $("#resumeHint");
 const soloButton = $("#soloButton");
+const sensitivityInput = $("#sensitivityInput"), sensitivityOutput = $("#sensitivityOutput");
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9ba7b0); scene.fog = new THREE.Fog(0x9ba7b0, 28, 68);
 const camera = new THREE.PerspectiveCamera(67, innerWidth / innerHeight, .1, 120);
@@ -40,7 +41,7 @@ function createAvatar(p) {
 function syncPlayers(list) {
   const ids=new Set(list.map(p=>p.id)); for(const [id,m] of playerMeshes)if(!ids.has(id)){scene.remove(m);playerMeshes.delete(id)}
   const me=list.find(p=>p.id===myId);
-  list.forEach(p=>{let m=playerMeshes.get(p.id)||createAvatar(p);m.userData.target=new THREE.Vector3(p.x,0,p.z);m.userData.player=p;m.userData.body.material.color.set(p.role==="hunter"?0x171a20:p.color);const hunterWaiting=(me?.role==="hunter"&&phase==="prepare"&&p.role==="hider")||(playMode==="solo"&&phase==="prepare"&&p.role==="hunter");m.visible=(!p.found||p.id===myId)&&!hunterWaiting;});
+  list.forEach(p=>{let m=playerMeshes.get(p.id)||createAvatar(p);m.userData.target=new THREE.Vector3(p.x,p.y||0,p.z);m.userData.player=p;m.userData.body.material.color.set(p.role==="hunter"?0x171a20:p.color);const hunterWaiting=(me?.role==="hunter"&&phase==="prepare"&&p.role==="hider")||(playMode==="solo"&&phase==="prepare"&&p.role==="hunter");m.visible=(!p.found||p.id===myId)&&!hunterWaiting;});
 }
 
 let socket,myId,hostId,currentRoom,players=[],phase="lobby",remaining=0,gameActive=false,yaw=0,pitch=.28,lastSend=0,lastAttack=0,aimTarget,playMode="online";
@@ -73,14 +74,14 @@ function onMessage(msg){
 function showLobby(msg){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.add("hidden");mainActions.classList.add("hidden");joinForm.classList.add("hidden");lobby.classList.remove("hidden");roomCode.textContent=msg.code;playerList.innerHTML=msg.players.map(p=>`<li>${p.id===msg.hostId?"★ ":""}${safe(p.name)}</li>`).join("");lobbyHint.textContent=myId===msg.hostId?"친구에게 코드를 공유하세요. 최소 2명, 최대 8명":"방장이 시작하기를 기다리는 중";startButton.classList.toggle("hidden",myId!==msg.hostId);statusText.textContent="";hud.classList.add("hidden");colorPanel.classList.add("hidden");crosshair.classList.add("hidden")}
 function beginGame(){gameActive=true;menu.classList.add("hidden");hud.classList.remove("hidden");crosshair.classList.remove("hidden");syncPlayers(players);updatePanels();canvas.requestPointerLock?.();const me=players.find(p=>p.id===myId);toast(me?.role==="hunter"?"당신은 술래 — 30초 동안 대기하세요":"30초 안에 색을 고르고 숨으세요")}
 function showResult(title,text){gameActive=false;document.exitPointerLock?.();menu.classList.remove("hidden");menuDescription.classList.remove("hidden");lobby.classList.add("hidden");joinForm.classList.add("hidden");mainActions.classList.toggle("hidden",playMode!=="solo");menuDescription.innerHTML=`<b>${title}</b><br>${text}<br><small>${playMode==="solo"?"다시 도전하거나 온라인 방을 만들어 보세요.":"잠시 후 대기실로 돌아갑니다."}</small>`;statusText.textContent=""}
-function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":playMode==="solo"&&soloChase>0?"AI 추적 중!":"추격 시간";roleLabel.textContent=me?.found?"발견됨 · 관전":me?.role==="hunter"?"술래 팀":"숨는 팀"}
+function updatePanels(){const me=players.find(p=>p.id===myId);colorPanel.classList.toggle("hidden",!(me?.role==="hider"&&phase==="prepare"));phaseLabel.textContent=phase==="prepare"?"준비 시간":playMode==="solo"&&soloChase>0?"AI 추적 중!":"추격 시간";roleLabel.textContent=me?.found?"발견됨 · 관전":me?.airLocked?"공중 고정":me?.role==="hunter"?"술래 팀":"숨는 팀"}
 function updateHud(){const h=players.filter(p=>p.role==="hider"),alive=h.filter(p=>!p.found);timer.textContent=`${String(Math.floor(remaining/60)).padStart(2,"0")}:${String(Math.ceil(remaining%60)).padStart(2,"0")}`;survivors.textContent=`${alive.length} / ${h.length}`;updatePanels()}
 function safe(v){const d=document.createElement("div");d.textContent=v;return d.innerHTML}
 function toast(text){const t=$("#toast");t.textContent=text;t.classList.remove("hidden","show");void t.offsetWidth;t.classList.add("show");setTimeout(()=>t.classList.add("hidden"),2100)}
 
 function startSolo(){
   playMode="solo";socket?.close();myId="solo-player";currentRoom="SOLO";phase="prepare";remaining=30;soloPhaseStarted=performance.now();soloDetect=0;soloChase=0;soloAiThink=0;
-  players=[{id:myId,name:nameInput.value||"PLAYER",x:-20,z:-20,yaw:0,role:"hider",found:false,color:colorInput.value},{id:"solo-ai",name:"AI SEEKER",x:0,z:20,yaw:Math.PI,role:"hunter",found:false,color:"#171a20"}];
+  players=[{id:myId,name:nameInput.value||"PLAYER",x:-20,y:0,z:-20,vy:0,airLocked:false,yaw:0,role:"hider",found:false,color:colorInput.value},{id:"solo-ai",name:"AI SEEKER",x:0,y:0,z:20,vy:0,airLocked:false,yaw:Math.PI,role:"hunter",found:false,color:"#171a20"}];
   hudRoom.textContent="SOLO";beginGame();updateHud();
 }
 function colorMatch(player){
@@ -94,14 +95,17 @@ function chooseAiPatrol(){soloAiTarget.set(-20+Math.random()*40,0,-20+Math.rando
 function updateSolo(dt,now){
   const me=players[0],ai=players[1];remaining=Math.max(0,(phase==="prepare"?30:180)-(now-soloPhaseStarted)/1000);
   if(remaining<=0){if(phase==="prepare"){phase="hunt";remaining=180;soloPhaseStarted=now;chooseAiPatrol();toast("AI 술래가 등장했습니다!");syncPlayers(players)}else{return showResult("생존 성공","3분 동안 AI 술래에게 발견되지 않았습니다.")}}
-  let forward=(keys.has("KeyW")?1:0)-(keys.has("KeyS")?1:0),side=(keys.has("KeyD")?1:0)-(keys.has("KeyA")?1:0);const moving=!!(forward||side),speed=5.2*(keys.has("ShiftLeft")?1.45:1);
+  if(keys.has("Space")&&!me.jumpHeld&&me.y<=.01){me.vy=8.2;me.airLocked=false}me.jumpHeld=keys.has("Space");
+  if(keys.has("KeyF")&&!me.lockHeld&&me.y>.15){me.airLocked=!me.airLocked;toast(me.airLocked?"공중 고정 ON":"공중 고정 OFF")}me.lockHeld=keys.has("KeyF");
+  if(!me.airLocked){me.vy-=20*dt;me.y=Math.max(0,me.y+me.vy*dt);if(me.y===0)me.vy=0}
+  let forward=(keys.has("KeyW")?1:0)-(keys.has("KeyS")?1:0),side=(keys.has("KeyD")?1:0)-(keys.has("KeyA")?1:0);const moving=!!(forward||side)&&!me.airLocked,speed=5.2*(keys.has("ShiftLeft")?1.45:1);
   if(moving){const len=Math.hypot(forward,side),dx=(Math.sin(yaw)*forward+Math.cos(yaw)*side)/len*speed*dt,dz=(Math.cos(yaw)*forward-Math.sin(yaw)*side)/len*speed*dt;const nx=THREE.MathUtils.clamp(me.x+dx,-22.5,22.5),nz=THREE.MathUtils.clamp(me.z+dz,-22.5,22.5);if(!localBlocked(nx,me.z))me.x=nx;if(!localBlocked(me.x,nz))me.z=nz;me.yaw=yaw}
   if(phase==="hunt"){
     const dx=me.x-ai.x,dz=me.z-ai.z,distance=Math.hypot(dx,dz),toward=Math.atan2(dx,dz),angle=Math.abs(Math.atan2(Math.sin(toward-ai.yaw),Math.cos(toward-ai.yaw)));const match=colorMatch(me),vision=moving?16:5+(1-match)*11;const visible=distance<vision&&angle<.72&&clearLocalSight(ai,me);
     soloDetect=THREE.MathUtils.clamp(soloDetect+(visible?dt*1.45:-dt*.7),0,1);if(soloDetect>.55)soloChase=4;else soloChase=Math.max(0,soloChase-dt);
     soloAiThink-=dt;if(soloChase>0)soloAiTarget.set(me.x,0,me.z);else if(soloAiThink<=0||Math.hypot(ai.x-soloAiTarget.x,ai.z-soloAiTarget.z)<1)chooseAiPatrol();
     const tx=soloAiTarget.x-ai.x,tz=soloAiTarget.z-ai.z,len=Math.hypot(tx,tz)||1;ai.yaw=Math.atan2(tx,tz);const aiSpeed=(soloChase>0?6.3:4.1)*dt,nx=ai.x+tx/len*aiSpeed,nz=ai.z+tz/len*aiSpeed;if(!localBlocked(nx,ai.z))ai.x=nx;else soloAiThink=0;if(!localBlocked(ai.x,nz))ai.z=nz;else soloAiThink=0;
-    if(distance<1.25){me.found=true;syncPlayers(players);return showResult("AI에게 발견됨",`위장 일치도 ${Math.round(match*100)}% — 주변색과 더 비슷하게 맞춰보세요.`)}
+    if(Math.hypot(dx,me.y-ai.y,dz)<1.25){me.found=true;syncPlayers(players);return showResult("AI에게 발견됨",`위장 일치도 ${Math.round(match*100)}% — 주변색과 더 비슷하게 맞춰보세요.`)}
   }
   syncPlayers(players);updateHud();
 }
@@ -124,8 +128,9 @@ $("#backButton").onclick=()=>{joinForm.classList.add("hidden");mainActions.class
 $("#joinButton").onclick=()=>connect({type:joinButton.dataset.mode||"join",name:nameInput.value,code:roomInput.value.trim().toUpperCase()});
 startButton.onclick=()=>wsSend({type:"start"});roomCode.onclick=()=>{navigator.clipboard?.writeText(currentRoom);toast("방 코드 복사됨")};
 
-addEventListener("keydown",e=>{keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor()});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
-addEventListener("mousemove",e=>{if(document.pointerLockElement!==canvas||!gameActive)return;yaw-=e.movementX*.0023;pitch=THREE.MathUtils.clamp(pitch-e.movementY*.0018,-.15,.85)});
+addEventListener("keydown",e=>{if(["Space","KeyF"].includes(e.code))e.preventDefault();keys.add(e.code);if(e.code==="KeyE"&&!e.repeat)sampleSurfaceColor()});addEventListener("keyup",e=>keys.delete(e.code));addEventListener("blur",()=>keys.clear());
+let sensitivity=Number(localStorage.getItem("colorHideSensitivity"))||1;sensitivityInput.value=String(sensitivity);sensitivityOutput.value=sensitivity.toFixed(1);sensitivityInput.oninput=()=>{sensitivity=Number(sensitivityInput.value);sensitivityOutput.value=sensitivity.toFixed(1);localStorage.setItem("colorHideSensitivity",String(sensitivity))};
+addEventListener("mousemove",e=>{if(document.pointerLockElement!==canvas||!gameActive)return;yaw-=e.movementX*.0023*sensitivity;pitch=THREE.MathUtils.clamp(pitch-e.movementY*.0018*sensitivity,-.15,.85)});
 canvas.addEventListener("click",()=>{if(!gameActive)return;if(document.pointerLockElement!==canvas){canvas.requestPointerLock?.();return}const me=players.find(p=>p.id===myId);if(me?.role!=="hunter"||phase!=="hunt"||Date.now()-lastAttack<650)return;lastAttack=Date.now();if(aimTarget)wsSend({type:"attack",targetId:aimTarget});else toast("빗나갔습니다")});
 document.addEventListener("pointerlockchange",()=>resumeHint.classList.toggle("hidden",!gameActive||document.pointerLockElement===canvas));resumeHint.onclick=()=>canvas.requestPointerLock?.();
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
@@ -136,6 +141,6 @@ function animate(now){requestAnimationFrame(animate);const dt=Math.min(clock.get
   const me=players.find(p=>p.id===myId),mine=playerMeshes.get(myId);let followed=mine;if(me?.found)followed=[...playerMeshes.values()].find(m=>m.userData.player?.role==="hider"&&!m.userData.player?.found)||playerMeshes.get(players.find(p=>p.role==="hunter")?.id);if(followed){const target=followed.position.clone().add(new THREE.Vector3(0,1.25,0));const dist=5.8,offset=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch)*dist,2.1+Math.sin(pitch)*dist,-Math.cos(yaw)*Math.cos(pitch)*dist);camera.position.lerp(target.clone().add(offset),Math.min(1,dt*12));camera.lookAt(target);if(mine)mine.visible=true}
   else{camera.position.set(16,18,25);camera.lookAt(0,0,0)}
   aimTarget=undefined;if(gameActive&&me?.role==="hunter"&&phase==="hunt"){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects([...playerMeshes.values()],true).find(h=>{const id=h.object.userData.playerId,p=players.find(item=>item.id===id);return id&&id!==myId&&p&&!p.found});aimTarget=hit?.object.userData.playerId}crosshair.classList.toggle("target",!!aimTarget);crosshair.classList.toggle("cooldown",now-lastAttack<650);
-  if(gameActive&&playMode==="online"&&now-lastSend>45){lastSend=now;wsSend({type:"input",forward:keys.has("KeyW"),back:keys.has("KeyS"),left:keys.has("KeyA"),right:keys.has("KeyD"),run:keys.has("ShiftLeft")||keys.has("ShiftRight"),yaw})}
+  if(gameActive&&playMode==="online"&&now-lastSend>45){lastSend=now;wsSend({type:"input",forward:keys.has("KeyW"),back:keys.has("KeyS"),left:keys.has("KeyA"),right:keys.has("KeyD"),run:keys.has("ShiftLeft")||keys.has("ShiftRight"),jump:keys.has("Space"),airLock:keys.has("KeyF"),yaw})}
   renderer.render(scene,camera)}
 requestAnimationFrame(animate);

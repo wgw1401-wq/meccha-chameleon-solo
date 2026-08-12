@@ -33,16 +33,16 @@ function clearSight(a, b) {
 const send = (ws, data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data));
 const broadcast = (room, data) => room.players.forEach(p => send(p.ws, data));
 const makeCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
-const exposed = room => room.players.map(({ id, name, x, z, yaw, role, found, color }) => ({ id, name, x, z, yaw, role, found, color }));
+const exposed = room => room.players.map(({ id, name, x, y, z, yaw, role, found, color, airLocked }) => ({ id, name, x, y, z, yaw, role, found, color, airLocked }));
 function lobby(room) { broadcast(room, { type: "lobby", code: room.code, hostId: room.hostId, players: exposed(room) }); }
-function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, z: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {}, lastAttack: 0 }; }
+function player(ws, name) { return { id: crypto.randomUUID(), ws, name: String(name || "PLAYER").trim().slice(0, 12) || "PLAYER", x: 0, y: 0, z: 0, vy: 0, yaw: 0, role: "hider", found: false, color: COLORS[Math.floor(Math.random() * COLORS.length)], input: {}, lastAttack: 0, airLocked: false, jumpHeld: false, lockHeld: false }; }
 
 function startGame(room) {
   if (room.players.length < 2) return send(room.players.find(p => p.id === room.hostId)?.ws, { type: "error", message: "최소 2명이 필요합니다." });
   room.state = "playing"; room.phase = "prepare"; room.phaseStarted = Date.now(); room.duration = 30;
   const hunter = Math.floor(Math.random() * room.players.length);
   const spawns = [[-20,-20],[20,-20],[-20,20],[20,20],[-20,0],[20,0],[0,-20],[0,20]];
-  room.players.forEach((p, i) => { p.role = i === hunter ? "hunter" : "hider"; p.found = false; p.color = COLORS[i % COLORS.length]; [p.x,p.z] = p.role === "hunter" ? [0,19] : spawns[i]; p.yaw = 0; });
+  room.players.forEach((p, i) => { p.role = i === hunter ? "hunter" : "hider"; p.found = false; p.color = COLORS[i % COLORS.length]; [p.x,p.z] = p.role === "hunter" ? [0,19] : spawns[i]; p.y=0;p.vy=0;p.airLocked=false;p.yaw = 0; });
   broadcast(room, { type: "started", phase: room.phase, duration: 30, players: exposed(room) });
 }
 function endGame(room, winner) { if (room.state !== "playing") return; room.state = "results"; broadcast(room, { type: "ended", winner, players: exposed(room) }); setTimeout(() => { if (!rooms.has(room.code)) return; room.state = "lobby"; lobby(room); }, 4500); }
@@ -66,13 +66,13 @@ wss.on("connection", ws => {
     }
     if (!me) return; const room = rooms.get(me.room); if (!room) return;
     if (msg.type === "start" && room.hostId === me.id && room.state === "lobby") return startGame(room);
-    if (msg.type === "input") me.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, run: !!msg.run, yaw: Number(msg.yaw) || 0 };
+    if (msg.type === "input") me.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, run: !!msg.run, jump: !!msg.jump, airLock: !!msg.airLock, yaw: Number(msg.yaw) || 0 };
     if (msg.type === "color" && me.role === "hider" && room.phase === "prepare" && /^#[0-9a-f]{6}$/i.test(msg.color)) me.color = msg.color;
     if (msg.type === "attack" && me.role === "hunter" && room.phase === "hunt") {
       const now=Date.now();if(now-me.lastAttack<650)return send(me.ws,{type:"attackResult",hit:false,reason:"cooldown"});me.lastAttack=now;
       const target = room.players.find(p => p.id === msg.targetId && p.role === "hider" && !p.found);
       if (!target)return send(me.ws,{type:"attackResult",hit:false,reason:"invalid"});
-      if(Math.hypot(target.x-me.x,target.z-me.z)>7.5)return send(me.ws,{type:"attackResult",hit:false,reason:"range"});
+      if(Math.hypot(target.x-me.x,target.y-me.y,target.z-me.z)>7.5)return send(me.ws,{type:"attackResult",hit:false,reason:"range"});
       if(!clearSight(me,target))return send(me.ws,{type:"attackResult",hit:false,reason:"blocked"});
       target.found=true;send(me.ws,{type:"attackResult",hit:true,targetId:target.id});broadcast(room,{type:"found",targetId:target.id,by:me.id});
     }
@@ -92,8 +92,11 @@ setInterval(() => rooms.forEach(room => {
   for (const p of room.players) {
     if (p.found || (p.role === "hunter" && room.phase === "prepare")) continue;
     const i = p.input, fx = Math.sin(i.yaw), fz = Math.cos(i.yaw), rx = Math.cos(i.yaw), rz = -Math.sin(i.yaw);
-    let dx = fx * ((i.forward?1:0)-(i.back?1:0)) + rx * ((i.right?1:0)-(i.left?1:0));
-    let dz = fz * ((i.forward?1:0)-(i.back?1:0)) + rz * ((i.right?1:0)-(i.left?1:0));
+    if(i.jump&&!p.jumpHeld&&p.y<=.01){p.vy=8.2;p.airLocked=false}p.jumpHeld=i.jump;
+    if(i.airLock&&!p.lockHeld&&p.y>.15)p.airLocked=!p.airLocked;p.lockHeld=i.airLock;
+    if(!p.airLocked){p.vy-=20/20;p.y=Math.max(0,p.y+p.vy/20);if(p.y===0)p.vy=0}
+    let dx = p.airLocked?0:fx * ((i.forward?1:0)-(i.back?1:0)) + rx * ((i.right?1:0)-(i.left?1:0));
+    let dz = p.airLocked?0:fz * ((i.forward?1:0)-(i.back?1:0)) + rz * ((i.right?1:0)-(i.left?1:0));
     const len = Math.hypot(dx,dz) || 1, speed = (p.role === "hunter" ? 6.2 : 5.2) * (i.run ? 1.45 : 1);
     const nextX=clamp(p.x+dx/len*speed/20,-22.5,22.5),nextZ=clamp(p.z+dz/len*speed/20,-22.5,22.5);
     if(!blocked(nextX,p.z))p.x=nextX;if(!blocked(p.x,nextZ))p.z=nextZ;p.yaw=i.yaw;
